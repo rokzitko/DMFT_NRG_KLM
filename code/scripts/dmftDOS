@@ -60,8 +60,9 @@ for ($i = 0; $i < $len; $i++) {
     my $r = Re($Delta); # stored in ReDelta.dat
     my $i = Im($Delta); # stored in ImDelta.dat
 
+    # Perform ImDelta.dat clipping to ensure hybridization function (Gamma=-ImDelta) is positive (!)
     if ($i > $positiveshift) {
-        $y = -$positiveshift;
+        $i = -$positiveshift;
     }
 
     print R "$o $r\n";
