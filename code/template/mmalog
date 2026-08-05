@@ -1,0 +1,252 @@
+NRG Ljubljana 2026.06 (c) Rok Zitko, rok.zitko@ijs.si
+Mathematica version: 13.3.0 for Linux x86 (64-bit) (June 3, 2023)
+sneg version: 2.0.13
+Loading module initialparse.m path: {~, ., .., /home/zitko/software/nrgljubljana/current/nrginit, ~/nrg}
+Loading module sym.m path: {~, ., .., /home/zitko/software/nrgljubljana/current/nrginit, ~/nrg}
+Options: {GENERATE_TEMPLATE, GENERATE_TEMPLATE_ALL}
+Loading module models.m path: {~, ., .., /home/zitko/software/nrgljubljana/current/nrginit, ~/nrg}
+models started
+Loading module custommodels.m path: {~, ., .., /home/zitko/software/nrgljubljana/current/nrginit, ~/nrg}
+custommodels Rok Zitko
+Loading module ../model.m path: {~, ., .., /home/zitko/software/nrgljubljana/current/nrginit, ~/nrg}
+def1ch, NRDOTS=1
+H0=coefzeta[1, 0]*(-1 + nc[f[0, 0, 0], f[1, 0, 0]] + nc[f[0, 0, 1], f[1, 0, 1]])
+SPIN=1/2
+"selfopd[CR,UP]="-(U1*nc[d[0, 0], d[0, 1], d[1, 0]]) + (JK*nc[d[0, 0], ket[1/2], bra[-1/2]])/2 - (JK*nc[d[0, 1], ket[-1/2], bra[-1/2]])/4 + (JK*nc[d[0, 1], ket[1/2], bra[1/2]])/4
+"selfopd[CR,DO]="U1*nc[d[0, 0], d[0, 1], d[1, 1]] + (JK*nc[d[0, 0], ket[-1/2], bra[-1/2]])/4 - (JK*nc[d[0, 0], ket[1/2], bra[1/2]])/4 + (JK*nc[d[0, 1], ket[-1/2], bra[1/2]])/2
+"selfopd[AN,UP]="-(U1*nc[d[0, 0], d[1, 0], d[1, 1]]) - (JK*nc[d[1, 0], ket[-1/2], bra[1/2]])/2 + (JK*nc[d[1, 1], ket[-1/2], bra[-1/2]])/4 - (JK*nc[d[1, 1], ket[1/2], bra[1/2]])/4
+"selfopd[AN,DO]="U1*nc[d[0, 1], d[1, 0], d[1, 1]] - (JK*nc[d[1, 0], ket[-1/2], bra[-1/2]])/4 + (JK*nc[d[1, 0], ket[1/2], bra[1/2]])/4 - (JK*nc[d[1, 1], ket[1/2], bra[-1/2]])/2
+"SigmaH[UP]="U1*nc[d[0, 0], d[1, 0]] - (JK*nc[ket[-1/2], bra[-1/2]])/4 + (JK*nc[ket[1/2], bra[1/2]])/4
+"SigmaH[DO]="U1*nc[d[0, 1], d[1, 1]] + (JK*nc[ket[-1/2], bra[-1/2]])/4 - (JK*nc[ket[1/2], bra[1/2]])/4
+"SigmaH="(U1*nc[d[0, 0], d[1, 0]] + U1*nc[d[0, 1], d[1, 1]])/2
+NRDOTS:1 CHANNELS:1 COEFCHANNELS:1
+basis:{d[], f[0]}
+SCALE[0]=1.0201394465967895
+faktor=1.3862943611198906
+Generating basis
+MAKESPINKET=1/2
+spin basis={{{1/2}, {ket[1/2]}}, {{-1/2}, {ket[-1/2]}}}
+spin basis={{{1/2}, {ket[1/2]}}}
+Wilson chain
+DISCNMAX=0
+BAND="flat" thetaCh={"2."}
+Discretization (channel 1)
+"xitable" (channel 1)
+xi(1.)(0)
+"zetatable" (channel 1)
+dzeta(1.)(0)
+Precision last xi:Infinity
+Precision last zeta: Infinity
+Discretization done.
+{HoldPattern[lastf[ch_]] :> If[Ninit == 0, f[ch], f[ch, Ninit]]}
+thetaCh={"2."}
+theta0Ch={"0.2"}
+gammaPolCh={"0.252313252202016"}
+calcgsenergy[]
+diagvc[{-2, 2}]
+Generating matrix: ham_-2.2
+Writing ham_-2.2
+dim={1, 1}
+diagvc[{-1, 1}]
+Generating matrix: ham_-1.1
+Writing ham_-1.1
+dim={2, 2}
+diagvc[{-1, 3}]
+Generating matrix: ham_-1.3
+Writing ham_-1.3
+dim={2, 2}
+diagvc[{0, 2}]
+Generating matrix: ham_0.2
+Writing ham_0.2
+dim={4, 4}
+diagvc[{0, 4}]
+Generating matrix: ham_0.4
+Writing ham_0.4
+dim={1, 1}
+diagvc[{1, 1}]
+Generating matrix: ham_1.1
+Writing ham_1.1
+dim={2, 2}
+diagvc[{1, 3}]
+Generating matrix: ham_1.3
+Writing ham_1.3
+dim={2, 2}
+diagvc[{2, 2}]
+Generating matrix: ham_2.2
+Writing ham_2.2
+dim={1, 1}
+Lowest energies:{1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 4}
+Lowest energies (GS shifted):{0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 3}
+Scale factor SCALE(Ninit):1.0201394465967895
+Lowest energies (GS shifted and scaled):{0., 0., 0., 0., 0., 0., 0., 0., 0.9802581434685472, 0.9802581434685472, 0.9802581434685472, 0.9802581434685472, 0.9802581434685472, 1.9605162869370945, 2.9407744304056416}
+GSenergy=1
+makeireducf GENERAL
+Generating f table. op=f[0] cp={{2, 2}, {1, 3}}
+Writing opf0_2.2_1.3
+el[1,1]=0.
+Generating f table. op=f[0] cp={{2, 2}, {1, 1}}
+Writing opf0_2.2_1.1
+el[1,1]=0.
+Generating f table. op=f[0] cp={{1, 3}, {0, 4}}
+Writing opf0_1.3_0.4
+el[1,1]=1.1547005383792517
+Generating f table. op=f[0] cp={{1, 3}, {0, 2}}
+Writing opf0_1.3_0.2
+el[1,1]=0.
+Generating f table. op=f[0] cp={{1, 1}, {0, 2}}
+Writing opf0_1.1_0.2
+el[1,1]=0.
+Generating f table. op=f[0] cp={{0, 4}, {-1, 3}}
+Writing opf0_0.4_-1.3
+el[1,1]=0.
+Generating f table. op=f[0] cp={{0, 2}, {-1, 3}}
+Writing opf0_0.2_-1.3
+el[1,1]=1.224744871391589
+Generating f table. op=f[0] cp={{0, 2}, {-1, 1}}
+Writing opf0_0.2_-1.1
+el[1,1]=0.7071067811865475
+Generating f table. op=f[0] cp={{-1, 3}, {-2, 2}}
+Writing opf0_-1.3_-2.2
+el[1,1]=1.
+Generating f table. op=f[0] cp={{-1, 1}, {-2, 2}}
+Writing opf0_-1.1_-2.2
+el[1,1]=-1.
+Loading module operators.m path: {~, ., .., /home/zitko/software/nrgljubljana/current/nrginit, ~/nrg}
+operators.m started
+s: Himp HoldComplete[Himp /. params]
+Writing op.Himp_-2.2_-2.2
+Writing op.Himp_-1.1_-1.1
+Writing op.Himp_-1.3_-1.3
+Writing op.Himp_0.2_0.2
+Writing op.Himp_0.4_0.4
+Writing op.Himp_1.1_1.1
+Writing op.Himp_1.3_1.3
+Writing op.Himp_2.2_2.2
+Writing op.Himp
+s: Hpot HoldComplete[Hpot /. params]
+Writing op.Hpot_-2.2_-2.2
+Writing op.Hpot_-1.1_-1.1
+Writing op.Hpot_-1.3_-1.3
+Writing op.Hpot_0.2_0.2
+Writing op.Hpot_0.4_0.4
+Writing op.Hpot_1.1_1.1
+Writing op.Hpot_1.3_1.3
+Writing op.Hpot_2.2_2.2
+Writing op.Hpot
+s: n_d HoldComplete[number[d[]]]
+Writing op.n_d_-2.2_-2.2
+Writing op.n_d_-1.1_-1.1
+Writing op.n_d_-1.3_-1.3
+Writing op.n_d_0.2_0.2
+Writing op.n_d_0.4_0.4
+Writing op.n_d_1.1_1.1
+Writing op.n_d_1.3_1.3
+Writing op.n_d_2.2_2.2
+Writing op.n_d
+s: n_d_ud HoldComplete[nc[number[d[], DO], number[d[], UP]]]
+Writing op.n_d_ud_-2.2_-2.2
+Writing op.n_d_ud_-1.1_-1.1
+Writing op.n_d_ud_-1.3_-1.3
+Writing op.n_d_ud_0.2_0.2
+Writing op.n_d_ud_0.4_0.4
+Writing op.n_d_ud_1.1_1.1
+Writing op.n_d_ud_1.3_1.3
+Writing op.n_d_ud_2.2_2.2
+Writing op.n_d_ud
+d: A_d HoldComplete[d]
+Generating f table. op=d cp={{2, 2}, {1, 3}}
+Writing op.A_d_2.2_1.3
+el[1,1]=1.224744871391589
+Generating f table. op=d cp={{2, 2}, {1, 1}}
+Writing op.A_d_2.2_1.1
+el[1,1]=0.7071067811865475
+Generating f table. op=d cp={{1, 3}, {0, 4}}
+Writing op.A_d_1.3_0.4
+el[1,1]=0.
+Generating f table. op=d cp={{1, 3}, {0, 2}}
+Writing op.A_d_1.3_0.2
+el[1,1]=1.
+Generating f table. op=d cp={{1, 1}, {0, 2}}
+Writing op.A_d_1.1_0.2
+el[1,1]=-1.
+Generating f table. op=d cp={{0, 4}, {-1, 3}}
+Writing op.A_d_0.4_-1.3
+el[1,1]=-1.
+Generating f table. op=d cp={{0, 2}, {-1, 3}}
+Writing op.A_d_0.2_-1.3
+el[1,1]=0.
+Generating f table. op=d cp={{0, 2}, {-1, 1}}
+Writing op.A_d_0.2_-1.1
+el[1,1]=0.
+Generating f table. op=d cp={{-1, 3}, {-2, 2}}
+Writing op.A_d_-1.3_-2.2
+el[1,1]=0.
+Generating f table. op=d cp={{-1, 1}, {-2, 2}}
+Writing op.A_d_-1.1_-2.2
+el[1,1]=0.
+Writing op.A_d
+d: self_d HoldComplete[Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] & ]
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{2, 2}, {1, 3}}
+Writing op.self_d_2.2_1.3
+el[1,1]=-0.30618621784789724*JK + 1.224744871391589*U1
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{2, 2}, {1, 1}}
+Writing op.self_d_2.2_1.1
+el[1,1]=0.5303300858899106*JK + 0.7071067811865475*U1
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{1, 3}, {0, 4}}
+Writing op.self_d_1.3_0.4
+el[1,1]=0.
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{1, 3}, {0, 2}}
+Writing op.self_d_1.3_0.2
+el[1,1]=0.25*JK
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{1, 1}, {0, 2}}
+Writing op.self_d_1.1_0.2
+el[1,1]=0.75*JK
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{0, 4}, {-1, 3}}
+Writing op.self_d_0.4_-1.3
+el[1,1]=-0.25*JK
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{0, 2}, {-1, 3}}
+Writing op.self_d_0.2_-1.3
+el[1,1]=0.
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{0, 2}, {-1, 1}}
+Writing op.self_d_0.2_-1.1
+el[1,1]=0.
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{-1, 3}, {-2, 2}}
+Writing op.self_d_-1.3_-2.2
+el[1,1]=0.
+Generating f table. op=Chop[Expand[komutator[Hselfd /. params, d[#1, #2]]]] &  cp={{-1, 1}, {-2, 2}}
+Writing op.self_d_-1.1_-2.2
+el[1,1]=0.
+Writing op.self_d
+operators.m done
+Loading module customoperators.m path: {~, ., .., /home/zitko/software/nrgljubljana/current/nrginit, ~/nrg}
+customoperators Rok Zitko
+s: SdSk HoldComplete[op$4353]
+Writing op.SdSk_-2.2_-2.2
+Writing op.SdSk_-1.1_-1.1
+Writing op.SdSk_-1.3_-1.3
+Writing op.SdSk_0.2_0.2
+Writing op.SdSk_0.4_0.4
+Writing op.SdSk_1.1_1.1
+Writing op.SdSk_1.3_1.3
+Writing op.SdSk_2.2_2.2
+Writing op.SdSk
+Customoperators done.
+Loading module modeloperators.m path: {~, ., .., /home/zitko/software/nrgljubljana/current/nrginit, ~/nrg}
+s: SigmaHd HoldComplete[SigmaHdAvg]
+Writing op.SigmaHd_-2.2_-2.2
+Writing op.SigmaHd_-1.1_-1.1
+Writing op.SigmaHd_-1.3_-1.3
+Writing op.SigmaHd_0.2_0.2
+Writing op.SigmaHd_0.4_0.4
+Writing op.SigmaHd_1.1_1.1
+Writing op.SigmaHd_1.3_1.3
+Writing op.SigmaHd_2.2_2.2
+Writing op.SigmaHd
+Timing report
+{basis, 0.124812`5.5478013359196545}
+{ham, 0.114029`4.605470322211641}
+{maketable, 0.547983`6.190312079132326}
+{xi, 0.002482`3.846346770658682}
+{_, 0}
+data.in
+"Success!"

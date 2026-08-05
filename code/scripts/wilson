@@ -1,0 +1,12 @@
+#!/usr/bin/env perl
+# Compute Wilson chain coefficients for the next NRG instance
+# Rok Zitko, rok.zitko@ijs.si, Aug 2026
+
+my $hybfn = "Delta.dat";
+-e $hybfn or die "Hybridisation funcrtion not found.";
+system "nrgchain";
+-e "xi.dat" && -e "zeta.dat" && -e "theta.dat" or die "Wilson chain coefficients not found.";
+
+system "mv xi.dat xi1.dat";
+system "mv zeta.dat zeta1.dat";
+system "mv theta.dat theta1.dat";

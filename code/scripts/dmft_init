@@ -1,0 +1,35 @@
+#!/usr/bin/env perl
+# dmft_init - prepare a new DMFT run (called from dmft_monitor)
+# Rok Zitko, 2008-2025
+
+if (!-d "dmft") {
+  mkdir "dmft" or die "Can't create subdir dmft, stopped";
+}
+
+if (!-d "res") {
+    mkdir "res" or die "Cant create subdit res, stopped";
+}
+
+if (-e "DeltaFirst.dat" && !-e "mesh.dat") {
+    system "cp DeltaFirst.dat mesh.dat";
+}
+
+if (!-e "DeltaFirst.dat") {
+    if (!-e "mesh.dat") {
+      system "scripts/init_mesh >mesh.dat";
+    }
+    system "scripts/init_Sigma";
+    system "scripts/bandDOS";
+    system "scripts/dmftDOS";
+    system "scaley -1 ImDelta.dat >Delta.dat"; # We need both files
+} else {
+    system "cp DeltaFirst.dat Delta.dat";
+}
+
+if (!-e "ImDelta.dat" && -e "Delta.dat") {
+    system "scaley -1 Delta.dat >ImDelta.dat";
+}
+
+if (!-e "ReDelta.dat" && -e "ImDelta.dat") {
+    system "kk ImDelta.dat ReDelta.dat";
+}

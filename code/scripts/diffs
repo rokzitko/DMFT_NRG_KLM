@@ -1,0 +1,42 @@
+#!/usr/bin/env perl
+# Calculate differences between successive iterations.
+# Rok Zitko, 2008-2025
+
+use warnings;
+
+my $iter = `getiter`;
+
+diff("imaw", "DIFFS_C");  ### IMPORTANT: use imaw here !!
+
+sub diff {
+ return if ($iter == 1);
+ my $previous = $iter-1;
+
+ my $what = shift;
+ my $output = shift;
+
+ my $fn1 = "dmft/$iter-$what.dat";
+ my $fn2 = "dmft/$previous-$what.dat";
+
+ -e $fn1 or die "$fn1 does not exist. Stopped";
+ -e $fn2 or die "$fn2 does not exist. Stopped";
+    
+ # Support for adaptive mesh
+ system "resample $fn1 mesh.dat $fn1.tmp";
+ system "resample $fn2 mesh.dat $fn2.tmp";
+
+ chomp(my $diff = `subtracty $fn1.tmp $fn2.tmp | integrateabs`);
+ print "diff($fn1 - $fn2)=$diff\n";
+
+ # NOTE: This is simply an integral of A(w) from -inf to 0, so it only corresponds to occupancy
+ # in the zero-temperature case. This value is reported for debugging purposes, it is not used
+ # otherwise.
+ chomp(my $occupancydiff = `subtracty $fn1.tmp $fn2.tmp | integratenegabs`);
+ print "occupancy diff=$occupancydiff\n";
+    
+ unlink("$fn1.tmp", "$fn2.tmp");
+
+ open(OUT, ">>$output") or die "Can't append to $output: $!. Stopped";
+ print OUT "$iter $diff\n";
+ close OUT;
+}

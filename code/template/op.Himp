@@ -1,0 +1,16 @@
+{{{-2, 2}, {{B/2}}}, {{-1, 1}, 
+  {{0, 0}, {0, ((eps1 - JK/4)/Sqrt[2] - JK/(2*Sqrt[2]))/Sqrt[2] - 
+     (-((eps1 - JK/4)/Sqrt[2]) + JK/(2*Sqrt[2]))/Sqrt[2]}}}, 
+ {{-1, 3}, {{B/2, 0}, {0, B + eps1 + JK/4}}}, 
+ {{0, 2}, {{B/2, 0, 0, 0}, {0, (eps1 - JK/4)/2 + (B + eps1 + JK/4)/2, 0, 
+    (eps1 - JK/4)/(2*Sqrt[3]) - (B + eps1 + JK/4)/(2*Sqrt[3]) - 
+     JK/(2*Sqrt[3])}, {0, 0, B/2 + 2*eps1 + U1, 0}, 
+   {0, -1/2*(B + eps1 + JK/4)/Sqrt[3] + ((eps1 - JK/4)/Sqrt[6] - JK/Sqrt[6])/
+      Sqrt[2], 0, (B + eps1 + JK/4)/6 + ((eps1 - JK/4)/Sqrt[6] - JK/Sqrt[6])/
+      Sqrt[6] - Sqrt[2/3]*(-(Sqrt[2/3]*(eps1 - JK/4)) + JK/(2*Sqrt[6]))}}}, 
+ {{0, 4}, {{B + eps1 + JK/4}}}, 
+ {{1, 1}, {{((eps1 - JK/4)/Sqrt[2] - JK/(2*Sqrt[2]))/Sqrt[2] - 
+     (-((eps1 - JK/4)/Sqrt[2]) + JK/(2*Sqrt[2]))/Sqrt[2], 0}, 
+   {0, (-1/2*B + 2*eps1 + U1)/2 + (B/2 + 2*eps1 + U1)/2}}}, 
+ {{1, 3}, {{B + eps1 + JK/4, 0}, {0, B/2 + 2*eps1 + U1}}}, 
+ {{2, 2}, {{B/2 + 2*eps1 + U1}}}}

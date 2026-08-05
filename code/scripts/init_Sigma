@@ -1,0 +1,28 @@
+#!/usr/bin/env perl
+# Generates frequency-independent re/imsigma files for initializing the DMFT loop. 
+# Follow this step by running "bandDOS". 
+# RZ Jan 2025
+
+my $U = `getparam U1 param.loop`; # Hubbard U
+my $nspin = 0.5; # occupancy per spin, half filling is 0.5
+
+my $r = $U * $nspin; # Hartree shift
+$r -= 0; # manual tweak
+
+my $i = -0.0001; # Use some negative value.
+
+print "Initializing from constant self-energy. ReSigma=$r ImSigma=$i\n";
+
+-e "mesh.dat" or die "Error - mesh.dat is required to define the frequency mesh.";
+
+system "mkdir -p res";
+
+open(F, "<mesh.dat") or die;
+open(R, ">res/resigma.dat") or die;
+open(I, ">res/imsigma.dat") or die;
+
+while(<F>) {
+  ($x, $y) = split;
+  print R "$x $r\n";
+  print I "$x $i\n";
+}

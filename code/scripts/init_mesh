@@ -1,0 +1,28 @@
+#!/usr/bin/env perl
+# Create initial mesh. For backwards compatibility, the mesh is a two column table
+# (the value 2nd number in each line is irrelevant).
+# Rok Zitko, Jan 2025
+
+use warnings;
+use strict;
+
+my $max = `getparam broaden_max param.loop`;
+my $ratio = `getparam broaden_ratio param.loop`;
+my $min = `getparam broaden_min param.loop`;
+chomp ($max, $ratio, $min);
+print STDERR "init_mesh: max=$max ratio=$ratio min=$min\n";
+
+my @l;
+my $x;
+for ($x = $max; $x >= $min; $x /= $ratio) {
+    my $xpos = $x;
+    my $xneg = -$x;
+    push(@l, $xpos);
+    push(@l, $xneg);
+}
+
+my @sorted = sort { $a <=> $b } @l;
+
+foreach (@sorted) {
+    print "$_ 0\n";
+}

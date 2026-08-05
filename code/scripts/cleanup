@@ -1,0 +1,10 @@
+#!/bin/bash
+# Clean up after the calculation
+# Rok Zitko, Aug 2026
+rm -f ham ham.* mat mat.res val vec vec.* xi1.dat zeta1.dat theta1.dat
+rm -f data
+rm -f param.param param.extra param.dmft param
+rm -f Delta.dat.NEW* Delta.dat.OLD* Delta.dat.TEMP
+rm -f mesh.dat
+rm -f ITER
+rm -f logNEW* logUNION*

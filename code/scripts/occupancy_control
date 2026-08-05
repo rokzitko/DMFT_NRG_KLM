@@ -1,0 +1,92 @@
+#!/usr/bin/env python
+# Occupancy control based on shifting chemical potential mu to match the density computed through lattice GF
+# Rok Zitko, rok.zitko@ijs.si, 2025-2026
+
+import numpy as np
+import pandas as pd
+from scipy.interpolate import interp1d
+from scipy.integrate import quad
+from scipy.optimize import root_scalar
+import subprocess
+import shlex
+
+def get_float(command, default=None):
+    command = shlex.split(command)
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return float(result.stdout.strip())
+    except (subprocess.CalledProcessError, ValueError):
+        return default
+
+T = get_float("getparam T param.loop")
+LIM = get_float("getparam broaden_max param.loop")
+GOAL = get_float("getparam goal param.loop")
+MAXDX = get_float("getparam maxdx param.loop")
+UNDER = get_float("getparam under param.loop", 0.5)
+
+parammu = "param.mu"
+with open(parammu, "r") as f:
+    oldmu = float(f.read().strip())
+
+print(f"T={T} lim={LIM} goal={GOAL} maxdx={MAXDX} oldmu={oldmu}\n")
+
+# --- Load data ---
+data = pd.read_csv("res/imaw.dat", sep=r"\s+", header=None)
+x_vals, y_vals = data[0].values, data[1].values
+A = interp1d(x_vals, y_vals, kind='cubic', fill_value="extrapolate")
+print("A(0) =", A(0))
+
+# --- Fermi function ---
+def f(w):
+    return 1 / (1 + np.exp(w / T))
+
+# --- Total integral of A(w) ---
+total, _ = quad(lambda w: A(w), -LIM, LIM, limit=1000)
+print("total =", total)
+
+# --- Integration bounds for shifted integral ---
+LIM1 = -LIM
+LIM2 = min(LIM, 40*T)
+
+# --- Occupancy function ---
+def n(shift):
+    def integrand(w):
+        return A(w - shift) * f(w)
+    result, _ = quad(integrand, LIM1, LIM2, limit=1000)
+    return 2 * result  # Factor of 2 for spin
+
+n0 = n(0)
+print("n[shift=0] =", n0)
+
+# --- Solve for shift such that n(shift) == GOAL ---
+sol = root_scalar(lambda shift: n(shift) - GOAL, x0=0, method='secant')
+shift = sol.root
+print("sol =", sol)
+
+shift = UNDER * shift # "underrelaxation"
+
+newmu = oldmu - shift
+
+print("oldmu =", oldmu)
+print("newmu =", newmu)
+
+# --- Clip dx if too large ---
+dx = newmu - oldmu
+print("dx =", dx)
+if abs(dx) > MAXDX:
+    dx = np.sign(dx) * MAXDX
+    print("Clipping. dx==", dx)
+
+newmu = oldmu + dx
+
+# --- Write to files ---
+with open("param.mu", "w") as f:
+    f.write(f"{newmu}\n")
+
+with open("occupancy.log", "a") as f:
+    f.write(f"{oldmu} {newmu} {dx} {n0}\n")

@@ -1,0 +1,152 @@
+#!/usr/bin/env perl
+# Script that runs after the iteration is finished
+# Rok Zitko, 2008-2026
+
+use warnings;
+use Term::ANSIColor qw(:constants);
+
+my $mesh_refinement = 1; # 0=fixed mesh; 1=automatically refined mesh
+
+my $Nz = `getparam Nz param.loop`;
+chomp($Nz);
+
+my $done = 0;
+while (!$done) {
+    # Check if the calculations are completed
+    $done = 1;
+    for ($i = 1; $i <= $Nz; $i++) {
+        $dir = "$i";
+        system "ls $dir";
+        if (!-e "$dir/DONE") {
+            print "Not done: $dir\n";
+            $done = 0;
+        }
+    }
+
+    print "Nz=$Nz done=$done\n";
+    if (!$done) { sleep 60; }
+}
+
+-e "res" or error("res/ does not exist, stopped");
+
+# Clean up first
+system "rm -f res/*";
+
+# Average spectral functions
+msg("average");
+system "scripts/average";
+
+(-e "res/c-imF.dat" && -e "res/c-imG.dat")
+or error("Spectral functions not found, stopped");
+
+# Compute real parts
+msg("realparts");
+system "scripts/realparts";
+
+(-e "res/c-reF.dat" && -e "res/c-reG.dat")
+or error("Real parts of Green's functions not found, stopped");
+
+# Expectation values
+system ("gatherlastlines custom");
+system ("columnavg_comment custom >custom.avg");
+system ("gatherlastlines customfdm");
+system ("columnavg_comment customfdm >customfdm.avg");
+
+# Compute self-energy
+msg("sigmatrick");
+system "scripts/sigmatrick";
+
+(-e "res/imsigma.dat" && -e "res/resigma.dat")
+or error("Self-energy not found, stopped");
+
+# Compute G_script
+msg("bandDOS");
+system "scripts/bandDOS";
+
+(-s "res/imaw.dat" && -s "res/reaw.dat")
+or error("(Lattice) spectral functions not found, stopped");
+
+# Compute ImDelta.dat, ReDelta.dat
+system "scripts/dmftDOS";
+
+(-s "ImDelta.dat" && -s "ReDelta.dat")
+or error("Delta not found, stopped");
+
+# Increase iteration number (0 -> 1 initially); must be called before copyresults
+msg("newiter");
+system "newiter";
+
+# Copy results of postprocessing
+msg("copyresults");
+system "scripts/copyresults";
+
+# Occupancy control
+msg("occupancy_control");
+system "scripts/occupancy_control >occupancy.control.log 2>&1";
+
+# Compute differences (for self-consistency condition checks)
+msg("diffs");
+system "scripts/diffs";
+
+# Compute input for next NRG iteration
+msg("Computing Delta.dat");
+system "mv Delta.dat Delta.dat.OLD"; # save the old one!
+
+system "scaley -1 ImDelta.dat >Delta.dat"; # ImDelta.dat is the new one!
+-e "Delta.dat" or error("Hybridisation function not found, stopped");
+
+system "mv Delta.dat Delta.dat.NEW"; # rename the new one!
+
+if ($mesh_refinement) {
+    # Refine the mesh
+    chomp(my $delta = `getparam opt_delta param.loop`);
+    chomp(my $mindx = `getparam opt_mindx param.loop`);
+    chomp(my $ymin  = `getparam opt_ymin  param.loop`);
+    print "mesh optimization with delta=$delta mindx=$mindx ymin=$ymin\n";
+    system "optimize_mesh Delta.dat.NEW $delta $mindx $ymin >Delta.dat.NEW-opt 2>logNEW";
+    system "mesh_union Delta.dat.OLD Delta.dat.NEW-opt >mesh.dat 2>logUNION";
+    system "resample Delta.dat.OLD mesh.dat     Delta.dat.OLD-common";
+    system "resample Delta.dat.NEW-opt mesh.dat Delta.dat.NEW-common";
+
+    my $iter = `getiter`;
+    system "cp logNEW logNEW.$iter";
+    system "cp logUNION logUNION.$iter";
+} else {
+    print "Mesh refinement disabled.\n";
+    system "cp Delta.dat.OLD Delta.dat.OLD-common";
+    system "cp Delta.dat.NEW Delta.dat.NEW-common";
+}
+
+# Mixing
+chomp(my $alpha = `getparam alpha param.loop`);
+chomp(my $clip = `getparam clip param.loop`);
+print "alpha=$alpha clip=$clip\n";
+my $f1 = $alpha;
+my $f2 = 1.0-$alpha;
+system "mixy $f1 Delta.dat.NEW-common $f2 Delta.dat.OLD-common >Delta.dat.TEMP";
+
+system "clipy b $clip Delta.dat.TEMP >Delta.dat";
+
+msg("delete_NRG_output");
+system "delete_NRG_output";
+
+# RECURSION!
+system "scripts/checkconv";
+if (!-e "CONVERGED" && !-e "STOP") {
+  system "scripts/DMFT";
+}
+
+sub msg
+{
+    my $msg = shift;
+    print RED, "$msg\n", RESET;
+}
+
+sub error
+{
+    my $msg = shift;
+    open(F, ">ERROR") or die "Can't create an ERROR flag file, stopped";
+    print F "Error: $msg\n";
+    close(F);
+    die $msg;
+}

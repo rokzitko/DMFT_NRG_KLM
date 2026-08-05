@@ -1,0 +1,58 @@
+#!/usr/bin/env perl
+# Start the DMFT calculation by running this script!
+# Rok Zitko, rok.zitko@ijs.si, 2022-2026
+
+my $mma = 0; # 0=instantiate (stand-alone), 1=nrginit (Mathematica)
+my $local = 1; #0=submit a Slurm job, 1=run locally
+
+-e "DOS.dat" or die "Tabulated density of states DOS.dat must exist.";
+
+if (!-e "Delta.dat") { system "scripts/dmft_init"; }
+
+my $Nz = `getparam Nz param.loop`;
+chomp($Nz);
+
+# Chemical potential
+my $mu = `cat param.mu`;
+chomp($mu);
+
+# epsilon_d
+my $eps = `cat param.eps`;
+chomp($eps);
+
+my $epsimp = $eps-$mu;
+
+# Perform the discretization
+system "m4 -DEPS=$epsimp -DZZZ=1 param.loop >param";
+system("adapt P | tee solverlog");
+system("adapt N | tee solverlogneg");
+(-e "FSOL.dat" && -e "FSOLNEG.dat") or die "solver failed.\n";
+unlink "param";
+
+# Run Nz instances of NRG iteration
+for ($i = 1; $i <= $Nz; $i++) {
+  my $z = $i/$Nz;
+  system "m4 -DEPS=$epsimp -DZZZ=$z param.loop >param";
+  system "mkdir -p $i";
+
+  if ($mma) {
+      chdir $i;
+      system "cp ../Delta.dat Delta.dat";
+      system "cp ../param param";
+      system "nrginit";
+  } else {
+      system "scripts/instantiate $i";
+      chdir $i;
+  }
+
+  if ($local) {
+    system "mynrgrun";
+     # unlink "data";
+  } else {
+    system "subslurm";
+  }
+  chdir "..";
+}
+
+# Process the results.
+system "scripts/dmft_done" if (-x "scripts/dmft_done");

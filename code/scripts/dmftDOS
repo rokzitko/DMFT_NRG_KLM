@@ -1,0 +1,69 @@
+#!/usr/bin/env perl
+# Calculation of the effective hybridisation function
+# Rok Zitko, rok.zitko@ijs.si, 2026
+
+use warnings;
+use Math::Complex;
+
+# Read a column from a file
+sub readcol {
+    my ($filename, $column) = @_;
+
+    my @l;
+    open(F, "<$filename") or die "Can't open $filename for reading, stopped";
+    while (<F>) {
+        chomp;
+        my $x = (split)[$column-1];
+        push(@l, $x);
+    }
+    close(F);
+
+    @l
+};
+
+my $pi = pi;
+
+chomp(my $positiveshift = `getparam clip param.loop`);
+print "dmftDOS - positiveshift=$positiveshift\n";
+
+# Chemical potential
+my $mu = `cat param.mu`;
+chomp($mu);
+
+# epsilon_d
+my $eps = `cat param.eps`;
+chomp($eps);
+
+my $prefix = "res/";
+my @omega = readcol("${prefix}imaw.dat", 1);
+my @imG =   readcol("${prefix}imaw.dat", 2);
+my @reG =   readcol("${prefix}reaw.dat", 2);
+my @imS =   readcol("${prefix}imsigma.dat", 2);
+my @reS =   readcol("${prefix}resigma.dat", 2);
+
+open(R, ">ReDelta.dat") or die;
+open(I, ">ImDelta.dat") or die;
+
+my $len = @omega;
+for ($i = 0; $i < $len; $i++) {
+    my $o = $omega[$i];
+    my $G = $reG[$i] + i * $imG[$i];
+    my $sigma = $reS[$i] + i * $imS[$i];
+    my $GF = -$pi * $G; # difference between DOS and Im GF !
+
+    # G_0^-1 = G^-1_local + Sigma
+    my $g01 = 1/$GF + $sigma;
+
+    # Delta(z) = Im(z-G_0^-1)
+    my $Delta = $o + $mu - $g01;
+
+    my $r = Re($Delta); # stored in ReDelta.dat
+    my $i = Im($Delta); # stored in ImDelta.dat
+
+    if ($i > $positiveshift) {
+        $y = -$positiveshift;
+    }
+
+    print R "$o $r\n";
+    print I "$o $i\n";
+}

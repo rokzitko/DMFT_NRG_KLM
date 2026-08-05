@@ -1,0 +1,45 @@
+#!/usr/bin/env perl
+# Check for the convergence of the DMFT calculation.
+# Returns 0 if we need to continue, 1 if convergence is achieved.
+# Rok Zitko, 2008-2025
+
+use strict;
+use warnings;
+
+chomp(my $convergencelimit = `getparam conveps param.loop`);
+chomp(my $miniter = `getparam miniter param.loop`);
+chomp(my $maxiter = `getparam maxiter param.loop`);
+
+my $iter = `getiter`;
+print "checkconv, iter=$iter miniter=$miniter maxiter=$maxiter\n";
+
+exit 0 if $iter <= 1;
+
+my $fn = "DIFFS_C";
+exit 0 if !-e $fn;
+
+open(F, "<$fn") or die "Can't open $fn: $!. Stopped";
+my @l = <F>;
+close F;
+
+my $last = $l[-1];
+chomp($last);
+my ($iter2, $diff) = split(' ', $last, 2);
+if ($iter != $iter2) {
+    warn "Iteration number in ITER and $fn do not agree.\n";
+}
+
+my $abs = abs($diff);
+if ($abs < $convergencelimit && $iter > $miniter) {
+    print "Convergence achieved! $abs < $convergencelimit\n";
+    system "touch CONVERGED"; # create a flag file
+    system "scripts/bbl";
+    exit(1);
+} else {
+    print "Not converged yet. $abs > $convergencelimit\n";
+    if ($iter > $maxiter) {
+        print "Iteration limit exceeded, maxiter=$maxiter, stopping here.\n";
+        system "touch STOP";
+    }
+    exit(0);
+}

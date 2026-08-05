@@ -1,0 +1,95 @@
+#!/usr/bin/env perl
+# Calculate the self-energy and the spectral function via the self-energy trick
+# Assumption: the same mesh is used in all files (Delta.dat and various spectra).
+# General approach, for QS symmetry type
+# Rok Zitko, rok.zitko@ijs.si, 2008-2026
+
+use warnings;
+use strict;
+use Math::Complex;
+
+my $imclip = 1e-6; # "infinitesimal" clipping value for Im(Sigma), to prevent causality violations
+
+my $prefix = (-d "res" ? "res" : ".");
+
+my @omega = readcol("$prefix/c-imG.dat", 1);
+
+my @imG = readcol("$prefix/c-imG.dat", 2);
+my @reG = readcol("$prefix/c-reG.dat", 2);
+my @imF = readcol("$prefix/c-imF.dat", 2);
+my @reF = readcol("$prefix/c-reF.dat", 2);
+my @imI = readcol("$prefix/c-imI.dat", 2);
+my @reI = readcol("$prefix/c-reI.dat", 2);
+
+# Hartree shift
+my $SigmaH = `extractcolumn customfdm.avg SigmaHd`;
+chomp($SigmaH);
+
+# Chemical potential
+my $mu = `cat param.mu`;
+chomp($mu);
+
+# epsilon_d
+my $eps = `cat param.eps`;
+chomp($eps);
+
+print "mu=$mu eps=$eps\n";
+
+my @imdelta = readcol("ImDelta.dat", 2);
+my @redelta = readcol("ReDelta.dat", 2);
+
+my $selffn = "$prefix/c-self.dat";
+open(SELF, ">$selffn") or die "Can't open $selffn for writing, stopped";
+
+my $imsigma = "$prefix/imsigma.dat";
+open(IM, ">$imsigma") or die "Can't open $imsigma for writing, stopped";
+
+my $resigma = "$prefix/resigma.dat";
+open(RE, ">$resigma") or die "Can't open $resigma for writing, stopped";
+
+my $pi = pi;
+
+my $len = @omega;
+for (my $i = 0; $i < $len; $i++) {
+  my $o = $omega[$i];
+  my $G = $reG[$i] + i * $imG[$i];
+  $G = -$pi * $G; # this is now G, the local Green's function
+  my $F = $reF[$i] + i * $imF[$i];
+  $F = -$pi * $F; # this is now F, the auxiliary Green's function
+  my $I = $reI[$i] + i * $imI[$i];
+  $I = -$pi * $I; # this s now I, the 2nd auxiliary Green's function
+
+  my $sigma = $SigmaH + $I - $F/$G*$F;
+#  my $sigma = $F/$G;
+
+  my $delta = i * $imdelta[$i] + $redelta[$i];
+
+  my $gf = 1.0/($o + $mu - $eps - $delta - $sigma);
+  my $aw = -1.0/pi * Im($gf);
+
+  print SELF "$o $aw\n";
+
+  my $re = Re($sigma);
+  my $im = Im($sigma);
+
+  if ($im > -$imclip) {
+      $im = -$imclip;
+  }
+
+  print IM "$o $im\n";
+  print RE "$o $re\n";
+}
+
+# Read a column from a file
+sub readcol {
+    my ($filename, $column) = @_;
+    my @l;
+    open(F, "<$filename") or die "Can't open $filename for reading, stopped";
+    while (<F>) {
+        chomp;
+        my $x = (split)[$column-1];
+        push(@l, $x);
+    }
+    close(F);
+    @l
+};

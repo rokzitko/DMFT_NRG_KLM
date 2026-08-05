@@ -1,0 +1,20 @@
+#!/usr/bin/env perl
+# Calculate lattice Green's function
+# Input: shifts (eps, mu), Sigma (resigma.dat, imsigma.dat)
+# Output: Green's function multiplied by -1/pi (imaw.dat, reaw.dat)
+# Rok Zitko, rok.zitko@ijs.si, 2024-2026
+
+use strict;
+use warnings;
+
+# Chemical potential
+my $mu = `cat param.mu`;
+chomp($mu);
+
+# epsilon_d
+my $eps = `cat param.eps`;
+chomp($eps);
+
+my $shift = $mu - $eps;
+
+system "hilb -v -d DOS.dat -x $shift res/resigma.dat res/imsigma.dat res/reaw.dat res/imaw.dat";

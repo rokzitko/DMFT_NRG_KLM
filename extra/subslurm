@@ -1,0 +1,42 @@
+#!/usr/bin/perl
+# sub - add a NRG job to SLURM queue
+# (c) Rok Zitko, rok.zitko@ijs.si, 2009-2026
+
+use warnings;
+
+my $nrthread = 4;
+
+my $myjob = "job";
+open(F, ">$myjob") or die "Can't open $myjob for writing.";
+print F <<ENDSCRIPT;
+#!/bin/bash
+#SBATCH --time=3:59:59
+#SBATCH --mem=16000
+#SBATCH --nodes=1-1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=$nrthread
+#SBATCH -B 1:$nrthread
+
+uname -a
+
+echo Jobid: \${SLURM_JOB_ID}
+
+mkdir -p /work/zitko
+MYTMPDIR=`mktemp -d /work/zitko/work.XXXXXXXXXX`
+if [ -d \${MYTMPDIR} ]; then
+ export MKL_NUM_THREADS=$nrthread
+ export OMP_NUM_THREADS=$nrthread
+ module load nrg/current
+ nrg -w \${MYTMPDIR} 2>log2 >log
+ rm -rf \${MYTMPDIR}
+ rm data
+else
+ echo ERROR >SPACE
+fi
+echo IS >DONE
+
+ENDSCRIPT
+
+close(F);
+
+system ("sbatch -vv $myjob 2>&1 >sbatch.log");

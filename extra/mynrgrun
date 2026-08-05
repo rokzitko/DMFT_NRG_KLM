@@ -1,0 +1,12 @@
+#!/bin/sh
+nrthread=8
+export OMP_NUM_THREADS=$nrthread
+export MKL_NUM_THREADS=$nrthread
+tmppath=/work/zitko/work/nrg
+mkdir -p $tmppath
+MYTMPDIR=`mktemp -d $tmppath/work.XXXXXXXXXX`
+echo MYTMPDIR=$MYTMPDIR
+if [ -d $MYTMPDIR ]; then
+  nrg -w $MYTMPDIR 2>log2 | tee log
+  rm -rf $MYTMPDIR
+fi
