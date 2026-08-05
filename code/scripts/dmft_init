@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # dmft_init - prepare a new DMFT run (called from dmft_monitor)
-# Rok Zitko, 2008-2025
+# Rok Zitko, 2008-2026
 
 if (!-d "dmft") {
   mkdir "dmft" or die "Can't create subdir dmft, stopped";
@@ -10,26 +10,39 @@ if (!-d "res") {
     mkdir "res" or die "Cant create subdit res, stopped";
 }
 
-if (-e "DeltaFirst.dat" && !-e "mesh.dat") {
+if (-s "DeltaFirst.dat" && !-s "mesh.dat") {
+    # Ensure mesh.dat is consistent with the mesh used in DeltaFirst.dat
     system "cp DeltaFirst.dat mesh.dat";
 }
 
-if (!-e "DeltaFirst.dat") {
-    if (!-e "mesh.dat") {
+if (!-s "DeltaFirst.dat") {
+    if (!-s "mesh.dat") {
+      # If the mesh is not predefined, generate it using settings from param.loop
       system "scripts/init_mesh >mesh.dat";
     }
+    # Generate imsigma.dat, resigma.dat
     system "scripts/init_Sigma";
+    # Generate lattice Green's function approx, reaw.dat, imaw.dat
     system "scripts/bandDOS";
+    # Generate hybridization function, ReDelta.dat, ImDelta.dat
     system "scripts/dmftDOS";
-    system "scaley -1 ImDelta.dat >Delta.dat"; # We need both files
+    # Generate NRG input file Delta.dat (which is equal to -ImDelta)
+    system "scaley -1 ImDelta.dat >Delta.dat";
 } else {
+    # If DeltaFirst.dat exists, we use it as initial approximation!
     system "cp DeltaFirst.dat Delta.dat";
 }
 
-if (!-e "ImDelta.dat" && -e "Delta.dat") {
+# Ensure Delta.dat and ImDelta.dat are always consistent (measure of precaution, usually not needed)
+if (!-s "ImDelta.dat" && -s "Delta.dat") {
     system "scaley -1 Delta.dat >ImDelta.dat";
 }
 
-if (!-e "ReDelta.dat" && -e "ImDelta.dat") {
+# Ensure Re and Im parts of hybridization function are always consistent (measure of precaution, usually not needed)
+if (!-s "ReDelta.dat" && -s "ImDelta.dat") {
     system "kk ImDelta.dat ReDelta.dat";
 }
+
+-s "param.eps" or die "param.eps not found.";
+-s "param.mu" or die "param.mu not found.";
+-s "param.loop" or die "Parameter file param.loop not found.";

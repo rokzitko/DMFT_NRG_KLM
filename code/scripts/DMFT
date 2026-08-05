@@ -26,7 +26,7 @@ my $epsimp = $eps-$mu;
 system "m4 -DEPS=$epsimp -DZZZ=1 param.loop >param";
 system("adapt P | tee solverlog");
 system("adapt N | tee solverlogneg");
-(-e "FSOL.dat" && -e "FSOLNEG.dat") or die "solver failed.\n";
+(-s "FSOL.dat" && -s "FSOLNEG.dat") or die "solver failed.\n";
 unlink "param";
 
 # Run Nz instances of NRG iteration

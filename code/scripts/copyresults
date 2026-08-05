@@ -3,25 +3,29 @@
 # Rok Zitko, rok.zitko@ijs.si, 2008-2026
 
 use File::Copy;
+use warnings;
 
 my $iter = `getiter`;
 
+# Note: For Broyden mixing (if implemented), $track must be 1.
+my $track = 1; # 0=do not store copies in dmft/, 1=track DMFT iteration by storing copies of all results in dmft/.
+
 sub cp {
     my $fn = shift;
-    copy("res/$fn", "dmft/$iter-$fn") 
-      or die "Copying $fn failed: $!, stopped";
+    if ($track) { copy("res/$fn", "dmft/$iter-$fn")
+      or die "Copying $fn failed: $!, stopped"; }
 }
 
 sub cp0 {
     my $fn = shift;
-    copy("$fn", "dmft/$iter-$fn")
-      or warn "Warning: Copying solverlog failed: $!";
+    if ($track) { copy("$fn", "dmft/$iter-$fn")
+      or warn "Warning: Copying solverlog failed: $!"; }
 }
 
 sub cp1 {
     my $fn = shift;
-    copy("1/$fn", "dmft/$iter-$fn")
-      or warn "Warning: Copying solverlog failed: $!";
+    if ($track) { copy("1/$fn", "dmft/$iter-$fn")
+      or warn "Warning: Copying solverlog failed: $!"; }
 }
 
 # Whatever spectral functions we are interested in.
@@ -53,5 +57,5 @@ cp0("custom.avg");
 cp0("customfdm");
 cp0("customfdm.avg");
 
-copy("Delta.dat", "dmft/$iter-Delta.dat")
-  or warn "Warning: Copying Delta failed: $!";
+if ($track) { copy("Delta.dat", "dmft/$iter-Delta.dat")
+  or warn "Warning: Copying Delta failed: $!"; }

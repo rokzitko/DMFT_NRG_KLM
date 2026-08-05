@@ -36,14 +36,14 @@ system "rm -f res/*";
 msg("average");
 system "scripts/average";
 
-(-e "res/c-imF.dat" && -e "res/c-imG.dat")
+(-s "res/c-imF.dat" && -s "res/c-imG.dat")
 or error("Spectral functions not found, stopped");
 
 # Compute real parts
 msg("realparts");
 system "scripts/realparts";
 
-(-e "res/c-reF.dat" && -e "res/c-reG.dat")
+(-s "res/c-reF.dat" && -s "res/c-reG.dat")
 or error("Real parts of Green's functions not found, stopped");
 
 # Expectation values
@@ -56,7 +56,7 @@ system ("columnavg_comment customfdm >customfdm.avg");
 msg("sigmatrick");
 system "scripts/sigmatrick";
 
-(-e "res/imsigma.dat" && -e "res/resigma.dat")
+(-s "res/imsigma.dat" && -s "res/resigma.dat")
 or error("Self-energy not found, stopped");
 
 # Compute G_script
@@ -66,7 +66,7 @@ system "scripts/bandDOS";
 (-s "res/imaw.dat" && -s "res/reaw.dat")
 or error("(Lattice) spectral functions not found, stopped");
 
-# Compute ImDelta.dat, ReDelta.dat
+# Compute hybridization function ImDelta.dat, ReDelta.dat
 system "scripts/dmftDOS";
 
 (-s "ImDelta.dat" && -s "ReDelta.dat")
@@ -76,7 +76,8 @@ or error("Delta not found, stopped");
 msg("newiter");
 system "newiter";
 
-# Copy results of postprocessing
+# Copy results of postprocessing. This generates copies in dmft/ (if configured to do so using $track=1)
+# and in current directory (reaw.dat, imaw.dat, resigma.dat, imsigma.dat, DeltaLast.dat)
 msg("copyresults");
 system "scripts/copyresults";
 

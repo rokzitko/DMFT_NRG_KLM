@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # Calculate real parts of Green's functions
-# Rok Zitko, zitko@theorie.physik.uni-goettingen.de, Oct 2008
+# Rok Zitko, rok.zitko@ijs.si, 2008-2026
 
 use warnings;
 use Sys::Hostname;
@@ -22,7 +22,7 @@ foreach (@l) {
 
 sub kk {
     my ($in, $out) = @_;
-    -e $in or die "Input file not found: $in. Stopped";
+    -s $in or die "Input file not found: $in. Stopped";
     system("$kkexe $in $out");
-    -e $out or die "Output file not found:$ out. Stopped";
+    -s $out or die "Output file not found:$ out. Stopped";
 }
