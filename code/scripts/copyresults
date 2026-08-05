@@ -41,6 +41,7 @@ cp("reaw.dat");
 # Best-so-far results for post-processing.
 system "cp -v res/imsigma.dat imsigma.dat";
 system "cp -v res/resigma.dat resigma.dat";
+if (-s "imaw.dat") { system "cp -v imaw.dat imaw.dat.prev"; } # store previous version, for use in script diffs
 system "cp -v res/imaw.dat imaw.dat";
 system "cp -v res/reaw.dat reaw.dat";
 system "cp -v res/c-self.dat self.dat";

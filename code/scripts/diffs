@@ -15,8 +15,8 @@ sub diff {
  my $what = shift;
  my $output = shift;
 
- my $fn1 = "dmft/$iter-$what.dat";
- my $fn2 = "dmft/$previous-$what.dat";
+ my $fn1 = "$what.dat";
+ my $fn2 = "$what.dat.prev";
 
  -s $fn1 or die "$fn1 does not exist. Stopped";
  -s $fn2 or die "$fn2 does not exist. Stopped";
