@@ -66,12 +66,6 @@ system "scripts/bandDOS";
 (-s "res/imaw.dat" && -s "res/reaw.dat")
 or error("(Lattice) spectral functions not found, stopped");
 
-# Compute hybridization function ImDelta.dat, ReDelta.dat
-system "scripts/dmftDOS";
-
-(-s "ImDelta.dat" && -s "ReDelta.dat")
-or error("Delta not found, stopped");
-
 # Increase iteration number (0 -> 1 initially); must be called before copyresults
 msg("newiter");
 system "newiter";
@@ -89,15 +83,16 @@ system "scripts/occupancy_control >occupancy.control.log 2>&1";
 msg("diffs");
 system "scripts/diffs";
 
-# Compute input for next NRG iteration
-msg("Computing Delta.dat");
+# Compute hybridization function ImDelta.dat, ReDelta.dat
+msg("dmftDOS");
 system "mv Delta.dat Delta.dat.OLD"; # save the old one!
+-s "Delta.dat.OLD" or die "Failed to create Delta.dat.OLD";
+system "scripts/dmftDOS"; # This produces ImDelta.dat, ReDelta.dat, but not Delta.dat!
+(-s "ImDelta.dat" && -s "ReDelta.dat") or error("Delta not found, stopped");
+system "scaley -1 ImDelta.dat >Delta.dat.NEW"; # ImDelta.dat is the new one!
+-s "Delta.dat.NEW" or error("Hybridisation function not found, stopped");
 
-system "scaley -1 ImDelta.dat >Delta.dat"; # ImDelta.dat is the new one!
--e "Delta.dat" or error("Hybridisation function not found, stopped");
-
-system "mv Delta.dat Delta.dat.NEW"; # rename the new one!
-
+# Compute input for next NRG iteration
 if ($mesh_refinement) {
     # Refine the mesh
     chomp(my $delta = `getparam opt_delta param.loop`);
@@ -132,6 +127,8 @@ msg("delete_NRG_output");
 system "delete_NRG_output";
 
 # RECURSION!
+# Note that if we stop at this point, the calculation can be continued by running DMFT, because the input (Delta.dat)
+# is already prepared (mixing, etc.).
 system "scripts/checkconv";
 if (!-e "CONVERGED" && !-e "STOP") {
   system "scripts/DMFT";
