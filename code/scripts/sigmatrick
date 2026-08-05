@@ -12,7 +12,7 @@ my $imclip = 1e-6; # "infinitesimal" clipping value for Im(Sigma), to prevent ca
 
 my $prefix = (-d "res" ? "res" : ".");
 
-my @omega = readcol("$prefix/c-imG.dat", 1);
+my @omega = readcol("mesh.dat", 1);
 
 my @imG = readcol("$prefix/c-imG.dat", 2);
 my @reG = readcol("$prefix/c-reG.dat", 2);
@@ -20,6 +20,13 @@ my @imF = readcol("$prefix/c-imF.dat", 2);
 my @reF = readcol("$prefix/c-reF.dat", 2);
 my @imI = readcol("$prefix/c-imI.dat", 2);
 my @reI = readcol("$prefix/c-reI.dat", 2);
+
+scalar(@omega) == scalar(@imG) or die "ImG mesh mismatch.";
+scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
+scalar(@omega) == scalar(@imF) or die "ImF mesh mismatch.";
+scalar(@omega) == scalar(@reF) or die "ReF mesh mismatch.";
+scalar(@omega) == scalar(@imI) or die "ImI mesh mismatch.";
+scalar(@omega) == scalar(@reI) or die "ReI mesh mismatch.";
 
 # Hartree shift
 my $SigmaH = `extractcolumn customfdm.avg SigmaHd`;
@@ -35,8 +42,11 @@ chomp($eps);
 
 print "mu=$mu eps=$eps\n";
 
-my @imdelta = readcol("ImDelta.dat", 2);
-my @redelta = readcol("ReDelta.dat", 2);
+my @imdelta = readcol("$prefix/ImDelta.dat", 2);
+my @redelta = readcol("$prefix/ReDelta.dat", 2);
+
+scalar(@omega) == scalar(@imdelta) or die "ImDelta mesh mismatch.";
+scalar(@omega) == scalar(@redelta) or die "ReDelta mesh mismatch.";
 
 my $selffn = "$prefix/c-self.dat";
 open(SELF, ">$selffn") or die "Can't open $selffn for writing, stopped";

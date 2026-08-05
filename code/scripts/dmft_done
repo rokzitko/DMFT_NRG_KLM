@@ -29,8 +29,14 @@ while (!$done) {
 
 -e "res" or error("res/ does not exist, stopped");
 
-# Clean up first
+# Clean up first: note, we explicitly list the files to be deleted!
 system "rm -f res/*";
+
+# Store a copy of Hybridisation function used in the calculation in res/. The idea is that all files in res/ are consistent as regards
+# the frequency grid, e.g., after running average and realparts, to have a consistent input for sigmatrick script.
+system "cp -v Delta.dat res/Delta.dat";
+system "cp -v ReDelta.dat res/ReDelta.dat";
+system "cp -v ImDelta.dat res/ImDelta.dat";
 
 # Average spectral functions
 msg("average");
@@ -115,13 +121,18 @@ if ($mesh_refinement) {
 
 # Mixing
 chomp(my $alpha = `getparam alpha param.loop`);
-chomp(my $clip = `getparam clip param.loop`);
-print "alpha=$alpha clip=$clip\n";
+print "alpha=$alpha\n";
+$alpha > 0 or die "alpha is zero; 0<alpha<=1";
 my $f1 = $alpha;
 my $f2 = 1.0-$alpha;
 system "mixy $f1 Delta.dat.NEW-common $f2 Delta.dat.OLD-common >Delta.dat.TEMP";
+-s "Delta.dat.TEMP" or die "Mixing failed.";
 
+chomp(my $clip = `getparam clip param.loop`);
+print "clip=$clip\n";
+$clip > 0 or die "clip must be non-zero.";
 system "clipy b $clip Delta.dat.TEMP >Delta.dat";
+-s "Delta.dat" or die "Clipping failed.";
 
 msg("delete_NRG_output");
 system "delete_NRG_output";
