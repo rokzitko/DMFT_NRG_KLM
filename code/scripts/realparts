@@ -7,7 +7,7 @@ use warnings;
 
 my $kkexe = "kk";
 
-chdir "res";
+chdir "res" or die;
 
 my @l = qw( c-imF c-imG c-imI );
 

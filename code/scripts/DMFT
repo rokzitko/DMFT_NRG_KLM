@@ -43,13 +43,13 @@ for (my $i = 1; $i <= $Nz; $i++) {
   system("mkdir -p $i") == 0 or die "mkdir failed: $?";
 
   if ($mma) {
-      chdir $i;
+      chdir $i or die;
       system "cp ../Delta.dat Delta.dat";
       system "cp ../param param";
       system("nrginit")== 0 or die "nrginit failed: $?";
   } else {
       system("scripts/instantiate $i") == 0 or die "instantiate failed: $?";
-      chdir $i;
+      chdir $i or die;
   }
 
   if ($local) {
@@ -57,7 +57,7 @@ for (my $i = 1; $i <= $Nz; $i++) {
   } else {
     system("subslurm") == 0 or die "subslurm failed: $?";
   }
-  chdir "..";
+  chdir ".." or die;
 }
 
 # Process the results.
