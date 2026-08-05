@@ -2,6 +2,7 @@
 # Script that runs after the iteration is finished
 # Rok Zitko, 2008-2026
 
+use strict;
 use warnings;
 use Term::ANSIColor qw(:constants);
 
@@ -14,9 +15,9 @@ my $done = 0;
 while (!$done) {
     # Check if the calculations are completed
     $done = 1;
-    for ($i = 1; $i <= $Nz; $i++) {
-        $dir = "$i";
-        system "ls $dir";
+    for (my $i = 1; $i <= $Nz; $i++) {
+        my $dir = "$i";
+        system "ls $dir"; # Help with refreshing file-system cache
         if (!-e "$dir/DONE") {
             print "Not done: $dir\n";
             $done = 0;
@@ -40,14 +41,14 @@ system "cp -v ImDelta.dat res/ImDelta.dat";
 
 # Average spectral functions
 msg("average");
-system "scripts/average";
+system "scripts/average" == 0 or die "average failed: $?";
 
 (-s "res/c-imF.dat" && -s "res/c-imG.dat")
 or error("Spectral functions not found, stopped");
 
 # Compute real parts
 msg("realparts");
-system "scripts/realparts";
+system "scripts/realparts" == 0 or die "realparts failed: $?";
 
 (-s "res/c-reF.dat" && -s "res/c-reG.dat")
 or error("Real parts of Green's functions not found, stopped");
@@ -60,40 +61,40 @@ system ("columnavg_comment customfdm >customfdm.avg");
 
 # Compute self-energy
 msg("sigmatrick");
-system "scripts/sigmatrick";
+system "scripts/sigmatrick" == 0 or die "sigmatrick failed: $?";
 
 (-s "res/imsigma.dat" && -s "res/resigma.dat")
 or error("Self-energy not found, stopped");
 
 # Compute G_script
 msg("bandDOS");
-system "scripts/bandDOS";
+system "scripts/bandDOS" == 0 or die "bandDOS failed: $?";
 
 (-s "res/imaw.dat" && -s "res/reaw.dat")
 or error("(Lattice) spectral functions not found, stopped");
 
 # Increase iteration number (0 -> 1 initially); must be called before copyresults
 msg("newiter");
-system "newiter";
+system "newiter" == 0 or die "newiter failed: $?";
 
 # Copy results of postprocessing. This generates copies in dmft/ (if configured to do so using $track=1)
 # and in current directory (reaw.dat, imaw.dat, resigma.dat, imsigma.dat, DeltaLast.dat)
 msg("copyresults");
-system "scripts/copyresults";
+system "scripts/copyresults" == 0 or die "copyresults failed: $?";
 
 # Occupancy control
 msg("occupancy_control");
-system "scripts/occupancy_control >occupancy.control.log 2>&1";
+system "scripts/occupancy_control >occupancy.control.log 2>&1" == 0 or die "occupacy_control failed: $?";
 
 # Compute differences (for self-consistency condition checks)
 msg("diffs");
-system "scripts/diffs";
+system "scripts/diffs" == 0 or die "diffs failed: $?";
 
 # Compute hybridization function ImDelta.dat, ReDelta.dat
 msg("dmftDOS");
 system "mv Delta.dat Delta.dat.OLD"; # save the old one!
 -s "Delta.dat.OLD" or die "Failed to create Delta.dat.OLD";
-system "scripts/dmftDOS"; # This produces ImDelta.dat, ReDelta.dat, but not Delta.dat!
+system "scripts/dmftDOS"  = 0 or die "dmftDOS failed: $?"; # This produces ImDelta.dat, ReDelta.dat, but not Delta.dat!
 (-s "ImDelta.dat" && -s "ReDelta.dat") or error("Delta not found, stopped");
 system "scaley -1 ImDelta.dat >Delta.dat.NEW"; # ImDelta.dat is the new one!
 -s "Delta.dat.NEW" or error("Hybridisation function not found, stopped");
@@ -105,10 +106,10 @@ if ($mesh_refinement) {
     chomp(my $mindx = `getparam opt_mindx param.loop`);
     chomp(my $ymin  = `getparam opt_ymin  param.loop`);
     print "mesh optimization with delta=$delta mindx=$mindx ymin=$ymin\n";
-    system "optimize_mesh Delta.dat.NEW $delta $mindx $ymin >Delta.dat.NEW-opt 2>logNEW";
-    system "mesh_union Delta.dat.OLD Delta.dat.NEW-opt >mesh.dat 2>logUNION";
-    system "resample Delta.dat.OLD mesh.dat     Delta.dat.OLD-common";
-    system "resample Delta.dat.NEW-opt mesh.dat Delta.dat.NEW-common";
+    system "optimize_mesh Delta.dat.NEW $delta $mindx $ymin >Delta.dat.NEW-opt 2>logNEW" == 0 or die;
+    system "mesh_union Delta.dat.OLD Delta.dat.NEW-opt >mesh.dat 2>logUNION" == 0 or die;
+    system "resample Delta.dat.OLD mesh.dat     Delta.dat.OLD-common" == 0 or die;
+    system "resample Delta.dat.NEW-opt mesh.dat Delta.dat.NEW-common" == 0 or die;
 
     my $iter = `getiter`;
     system "cp logNEW logNEW.$iter";
@@ -125,14 +126,14 @@ print "alpha=$alpha\n";
 $alpha > 0 or die "alpha is zero; 0<alpha<=1";
 my $f1 = $alpha;
 my $f2 = 1.0-$alpha;
-system "mixy $f1 Delta.dat.NEW-common $f2 Delta.dat.OLD-common >Delta.dat.TEMP";
+system "mixy $f1 Delta.dat.NEW-common $f2 Delta.dat.OLD-common >Delta.dat.TEMP" == 0 or die;
 -s "Delta.dat.TEMP" or die "Mixing failed.";
 
 # Clipping of hybridization function
 chomp(my $clip = `getparam clip param.loop`);
 print "clip=$clip\n";
 $clip > 0 or die "clip must be non-zero.";
-system "clipy b $clip Delta.dat.TEMP >Delta.dat";
+system "clipy b $clip Delta.dat.TEMP >Delta.dat" == 0 or die;
 -s "Delta.dat" or die "Clipping failed.";
 
 system "scaley -1 Delta.dat >ImDelta.dat"; # ensure we have consistent set of hybridizaiton files
@@ -145,7 +146,7 @@ system "delete_NRG_output";
 # RECURSION!
 # Note that if we stop at this point, the calculation can be continued by running DMFT, because the input (Delta.dat)
 # is already prepared (mixing, etc.).
-system "scripts/checkconv";
+system "scripts/checkconv" == 0 or die "checkconv failed: $?";
 if (!-e "CONVERGED" && !-e "STOP") {
   system "scripts/DMFT";
 }

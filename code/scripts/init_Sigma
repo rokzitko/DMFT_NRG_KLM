@@ -1,7 +1,10 @@
 #!/usr/bin/env perl
 # Generates frequency-independent re/imsigma files for initializing the DMFT loop. 
 # Follow this step by running "bandDOS". 
-# RZ Jan 2025
+# RZ 2025-2026
+
+use strict;
+use warnings;
 
 my $U = `getparam U1 param.loop`; # Hubbard U
 my $nspin = 0.5; # occupancy per spin, half filling is 0.5
@@ -22,7 +25,7 @@ open(R, ">res/resigma.dat") or die;
 open(I, ">res/imsigma.dat") or die;
 
 while(<F>) {
-  ($x, $y) = split;
+  my ($x, $y) = split;
   print R "$x $r\n";
   print I "$x $i\n";
 }

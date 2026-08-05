@@ -2,6 +2,9 @@
 # dmft_init - prepare a new DMFT run (called from dmft_monitor)
 # Rok Zitko, 2008-2026
 
+use strict;
+use warnings;
+
 if (!-d "dmft") {
   mkdir "dmft" or die "Can't create subdir dmft, stopped";
 }

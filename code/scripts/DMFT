@@ -2,6 +2,9 @@
 # Start the DMFT calculation by running this script!
 # Rok Zitko, rok.zitko@ijs.si, 2022-2026
 
+use strict;
+use warnings;
+
 my $mma = 0; # 0=instantiate (stand-alone), 1=nrginit (Mathematica)
 my $local = 1; #0=submit a Slurm job, 1=run locally
 
@@ -23,14 +26,16 @@ chomp($eps);
 my $epsimp = $eps-$mu;
 
 # Perform the discretization
-system "m4 -DEPS=$epsimp -DZZZ=1 param.loop >param";
-system("adapt P | tee solverlog");
-system("adapt N | tee solverlogneg");
+system "m4 -DEPS=$epsimp -DZZZ=1 param.loop >param" == 0 or die;
+unlink "FSOL.dat"; # Delete first, avoid check passing with stale data.
+unlink "FOLNEG.dat";
+system("adapt P | tee solverlog") == 0 or die "adapt failed: $?";
+system("adapt N | tee solverlogneg") == 0 or die "adapt failed: $?";
 (-s "FSOL.dat" && -s "FSOLNEG.dat") or die "solver failed.\n";
 unlink "param";
 
 # Run Nz instances of NRG iteration
-for ($i = 1; $i <= $Nz; $i++) {
+for (my $i = 1; $i <= $Nz; $i++) {
   my $z = $i/$Nz;
   system "m4 -DEPS=$epsimp -DZZZ=$z param.loop >param";
   system "mkdir -p $i";
@@ -39,17 +44,17 @@ for ($i = 1; $i <= $Nz; $i++) {
       chdir $i;
       system "cp ../Delta.dat Delta.dat";
       system "cp ../param param";
-      system "nrginit";
+      system "nrginit" == 0 or die "nrginit failed: $?";
   } else {
       system "scripts/instantiate $i";
       chdir $i;
   }
 
   if ($local) {
-    system "mynrgrun";
+    system "mynrgrun" == 0 or die "nrg failed: $?";
      # unlink "data";
   } else {
-    system "subslurm";
+    system "subslurm" == 0 or die "subslurm failed: $?";
   }
   chdir "..";
 }

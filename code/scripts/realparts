@@ -2,10 +2,8 @@
 # Calculate real parts of Green's functions
 # Rok Zitko, rok.zitko@ijs.si, 2008-2026
 
+use strict;
 use warnings;
-use Sys::Hostname;
-
-my $host = hostname;
 
 my $kkexe = "kk";
 
