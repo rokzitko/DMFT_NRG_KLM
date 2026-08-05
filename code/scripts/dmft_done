@@ -98,7 +98,7 @@ system "scripts/dmftDOS"; # This produces ImDelta.dat, ReDelta.dat, but not Delt
 system "scaley -1 ImDelta.dat >Delta.dat.NEW"; # ImDelta.dat is the new one!
 -s "Delta.dat.NEW" or error("Hybridisation function not found, stopped");
 
-# Compute input for next NRG iteration
+# Compute input for next NRG iteration; here we work with Delta.dat (not ImDelta.dat, ReDelta.dat)
 if ($mesh_refinement) {
     # Refine the mesh
     chomp(my $delta = `getparam opt_delta param.loop`);
@@ -119,7 +119,7 @@ if ($mesh_refinement) {
     system "cp Delta.dat.NEW Delta.dat.NEW-common";
 }
 
-# Mixing
+# Mixing of hybridization function
 chomp(my $alpha = `getparam alpha param.loop`);
 print "alpha=$alpha\n";
 $alpha > 0 or die "alpha is zero; 0<alpha<=1";
@@ -128,12 +128,17 @@ my $f2 = 1.0-$alpha;
 system "mixy $f1 Delta.dat.NEW-common $f2 Delta.dat.OLD-common >Delta.dat.TEMP";
 -s "Delta.dat.TEMP" or die "Mixing failed.";
 
+# Clipping of hybridization function
 chomp(my $clip = `getparam clip param.loop`);
 print "clip=$clip\n";
 $clip > 0 or die "clip must be non-zero.";
 system "clipy b $clip Delta.dat.TEMP >Delta.dat";
 -s "Delta.dat" or die "Clipping failed.";
 
+system "scaley -1 Delta.dat >ImDelta.dat"; # ensure we have consistent set of hybridizaiton files
+system "kk ImDelta.dat ReDelta.dat";
+
+# Remove 1/, 2/, etc.
 msg("delete_NRG_output");
 system "delete_NRG_output";
 
