@@ -1,0 +1,14 @@
+T=0.01 lim=40.0 goal=0.8 maxdx=0.01 oldmu=-0.19654505384590107
+
+A(0) = 0.34871383893371
+total = 0.9999910054532207
+n[shift=0] = 0.8000000006630199
+sol =       converged: True
+           flag: converged
+ function_calls: 3
+     iterations: 2
+           root: 9.816691547117144e-10
+         method: secant
+oldmu = -0.19654505384590107
+newmu = -0.19654505433673564
+dx = -4.908345674348169e-10
