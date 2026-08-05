@@ -148,7 +148,7 @@ system("delete_NRG_output") == 0 or die;
 # is already prepared (mixing, etc.).
 system("scripts/checkconv") == 0 or die "checkconv failed: $?";
 if (!-e "CONVERGED" && !-e "STOP") {
-  system "scripts/DMFT";
+  system("scripts/DMFT") == 0 or die "DMFT failed: $?";
 }
 
 sub msg

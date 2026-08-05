@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 my $outdir = "res";
-system "mkdir -p $outdir";
+system("mkdir -p $outdir") == 0 or die;
 -d $outdir or die "Failed to create $outdir.";
 
 chomp(my $Nz = `getparam Nz param.loop`);

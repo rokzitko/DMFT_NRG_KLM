@@ -37,13 +37,10 @@ if ($abs < $convergencelimit && $iter > $miniter) {
     if (-x "scripts/bbl") {
         system("scripts/bbl") == 0 or die;
     }
-    exit(1); # rc=1 -> quit the loop
 } else {
     print "Not converged yet. $abs > $convergencelimit\n";
     if ($iter > $maxiter) {
         print "Iteration limit exceeded, maxiter=$maxiter, stopping here.\n";
         system "touch STOP";
-        exit(1); # rc=1 -> quit the loop
     }
-    exit(0); # rc=0 -> continue with the iteration
 }

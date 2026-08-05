@@ -30,7 +30,7 @@ my $epsimp = $eps-$mu;
 # Perform the discretization
 system("m4 -DEPS=$epsimp -DZZZ=1 param.loop >param") == 0 or die "m4 failed: $?";
 unlink "FSOL.dat"; # Delete first, avoid check passing with stale data.
-unlink "FOLNEG.dat";
+unlink "FSOLNEG.dat";
 system("adapt P >solverlog") == 0 or die "adapt failed: $?";
 system("adapt N >solverlogneg") == 0 or die "adapt failed: $?";
 (-s "FSOL.dat" && -s "FSOLNEG.dat") or die "solver failed.\n";
@@ -40,7 +40,7 @@ unlink "param";
 for (my $i = 1; $i <= $Nz; $i++) {
   my $z = $i/$Nz;
   system("m4 -DEPS=$epsimp -DZZZ=$z param.loop >param") == 0 or die "m4 failed: $?";
-  system "mkdir -p $i";
+  system("mkdir -p $i") == 0 or die "mkdir failed: $?";
 
   if ($mma) {
       chdir $i;
