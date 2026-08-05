@@ -18,7 +18,7 @@ print "Initializing from constant self-energy. ReSigma=$r ImSigma=$i\n";
 
 -e "mesh.dat" or die "Error - mesh.dat is required to define the frequency mesh.";
 
-system "mkdir -p res";
+system("mkdir -p res") == 0 or die;
 
 open(F, "<mesh.dat") or die;
 open(R, ">res/resigma.dat") or die;

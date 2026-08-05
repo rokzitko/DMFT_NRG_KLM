@@ -7,7 +7,7 @@ use warnings;
 
 my $hybfn = "Delta.dat";
 -s $hybfn or die "Hybridisation funcrtion not found.";
-system "nrgchain";
+system("nrgchain") == 0 or die "nrgchain failed: $?";
 -s "xi.dat" && -s "zeta.dat" && -s "theta.dat" or die "Wilson chain coefficients not found.";
 
 system "mv xi.dat xi1.dat";

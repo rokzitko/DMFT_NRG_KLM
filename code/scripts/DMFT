@@ -10,7 +10,9 @@ my $local = 1; #0=submit a Slurm job, 1=run locally
 
 -e "DOS.dat" or die "Tabulated density of states DOS.dat must exist.";
 
-if (!-e "Delta.dat") { system "scripts/dmft_init"; }
+if (!-e "Delta.dat") {
+    system("scripts/dmft_init") == 0 or die "dmft_init failed: $?";
+}
 
 my $Nz = `getparam Nz param.loop`;
 chomp($Nz);
@@ -26,38 +28,39 @@ chomp($eps);
 my $epsimp = $eps-$mu;
 
 # Perform the discretization
-system "m4 -DEPS=$epsimp -DZZZ=1 param.loop >param" == 0 or die;
+system("m4 -DEPS=$epsimp -DZZZ=1 param.loop >param") == 0 or die "m4 failed: $?";
 unlink "FSOL.dat"; # Delete first, avoid check passing with stale data.
 unlink "FOLNEG.dat";
-system("adapt P | tee solverlog") == 0 or die "adapt failed: $?";
-system("adapt N | tee solverlogneg") == 0 or die "adapt failed: $?";
+system("adapt P >solverlog") == 0 or die "adapt failed: $?";
+system("adapt N >solverlogneg") == 0 or die "adapt failed: $?";
 (-s "FSOL.dat" && -s "FSOLNEG.dat") or die "solver failed.\n";
 unlink "param";
 
 # Run Nz instances of NRG iteration
 for (my $i = 1; $i <= $Nz; $i++) {
   my $z = $i/$Nz;
-  system "m4 -DEPS=$epsimp -DZZZ=$z param.loop >param";
+  system("m4 -DEPS=$epsimp -DZZZ=$z param.loop >param") == 0 or die "m4 failed: $?";
   system "mkdir -p $i";
 
   if ($mma) {
       chdir $i;
       system "cp ../Delta.dat Delta.dat";
       system "cp ../param param";
-      system "nrginit" == 0 or die "nrginit failed: $?";
+      system("nrginit")== 0 or die "nrginit failed: $?";
   } else {
-      system "scripts/instantiate $i";
+      system("scripts/instantiate $i") == 0 or die "instantiate failed: $?";
       chdir $i;
   }
 
   if ($local) {
-    system "mynrgrun" == 0 or die "nrg failed: $?";
-     # unlink "data";
+    system("mynrgrun") == 0 or die "nrg failed: $?";
   } else {
-    system "subslurm" == 0 or die "subslurm failed: $?";
+    system("subslurm") == 0 or die "subslurm failed: $?";
   }
   chdir "..";
 }
 
 # Process the results.
-system "scripts/dmft_done" if (-x "scripts/dmft_done");
+if (-x "scripts/dmft_done") {
+    system("scripts/dmft_done") == 0 or die "dmft_done failed: $?";
+}

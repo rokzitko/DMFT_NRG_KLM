@@ -29,6 +29,8 @@ sub cp1 {
       or warn "Warning: Copying solverlog failed: $!"; }
 }
 
+system("mkdir -p dmft") == 0 or die; # Ensure dmft/ exists.
+
 # Whatever spectral functions we are interested in.
 cp("c-imG.dat");
 cp("c-self.dat");
@@ -40,13 +42,15 @@ cp("imaw.dat");
 cp("reaw.dat");
 
 # Best-so-far results for post-processing.
-system "cp -v res/imsigma.dat imsigma.dat";
-system "cp -v res/resigma.dat resigma.dat";
-if (-s "imaw.dat") { system "cp -v imaw.dat imaw.dat.prev"; } # store previous version, for use in script diffs
-system "cp -v res/imaw.dat imaw.dat";
-system "cp -v res/reaw.dat reaw.dat";
-system "cp -v res/c-self.dat self.dat";
-system "cp -v Delta.dat DeltaLast.dat";
+system("cp -v res/imsigma.dat imsigma.dat") == 0 or die;
+system("cp -v res/resigma.dat resigma.dat") == 0 or die;
+if (-s "imaw.dat") {
+    system("cp -v imaw.dat imaw.dat.prev") == 0 or die;
+} # store previous version, for use in script diffs
+system("cp -v res/imaw.dat imaw.dat") == 0 or die;
+system("cp -v res/reaw.dat reaw.dat") == 0 or die;
+system("cp -v res/c-self.dat self.dat") == 0 or die;
+system("cp -v Delta.dat DeltaLast.dat") == 0 or die;
 
 # NRG iteration logs, etc.
 cp1("custom");

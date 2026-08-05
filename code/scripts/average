@@ -30,11 +30,7 @@ sub avg
     my $out = shift;
 
     unlink "$out";
-    system "broaden -x $gamma -L mesh.dat   $in $Nz $alpha $T 1e-9";
-    if ($?) {
-       system "echo Broadening of $in failed: $? >>>ERROR";
-       die "broaden failed: $?\n";
-    }
+    system("broaden -x $gamma -L mesh.dat   $in $Nz $alpha $T 1e-9") == 0 or die "broaden failed: $?";
     my $specfn = "spec.dat";
     if (!-e $specfn) {
        system "echo Failed to produce broadened spectrum $specfn -> $out. >>>ERROR";

@@ -17,4 +17,4 @@ chomp($eps);
 
 my $shift = $mu - $eps;
 
-system "hilb -v -d DOS.dat -x $shift res/resigma.dat res/imsigma.dat res/reaw.dat res/imaw.dat";
+system("hilb -v -d DOS.dat -x $shift res/resigma.dat res/imsigma.dat res/reaw.dat res/imaw.dat") == 0 or die "hilb failed: $?";

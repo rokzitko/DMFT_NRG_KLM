@@ -34,7 +34,9 @@ if ($abs < $convergencelimit && $iter > $miniter) {
     print "Convergence achieved! $abs < $convergencelimit\n";
     system "touch CONVERGED"; # create a flag file
     # Run postprocessing scripts here
-    if (-x "scripts/bbl") { system "scripts/bbl"; }
+    if (-x "scripts/bbl") {
+        system("scripts/bbl") == 0 or die;
+    }
     exit(1); # rc=1 -> quit the loop
 } else {
     print "Not converged yet. $abs > $convergencelimit\n";

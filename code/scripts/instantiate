@@ -33,7 +33,7 @@ while (<F>) {
 close O if $section ne "";
 close F;
 
-system "scripts/wilson";
+system("scripts/wilson") == 0 or die "wilson failed: $?";
 my $nr = getparam("Nmax");
 
 ### Translate data.in -> data
@@ -103,12 +103,11 @@ while (<F>) {
             $line1 =~ /DIAG\s+(\S+)$/;
             my $fn = $1;
 
-            system("$matrix -c$coefchannels param.extra $path/$fn >ham");
-            if ($? != 0) { die "matrix call error"; }
+            system("$matrix -c$coefchannels param.extra $path/$fn >ham") == 0 or die "matrix failed: $?";
             copy("ham", "ham.$qn");
 
             ($factor > 0) or die "no factor?";
-            system("$diag -q -s $factor -o val -O vec ham");
+            system("$diag -q -s $factor -o val -O vec ham") == 0 or die "diag failed: $?";
 
             my $eig = `cat val`;
             push(@buffer,  [ "$qnspaces\n$size\n", $eig ]);
@@ -213,12 +212,10 @@ sub unitary
         } else {
             chomp(my $fn = $line);
             -e "$path/$fn" or die "File not found: $fn";
-            system("$matrix -c$coefchannels param.extra $path/$fn >mat");
-            if ($? != 0) { die "matrix call error for $fn"; }
+            system("$matrix -c$coefchannels param.extra $path/$fn >mat") == 0 or die "matrix failed: $?";
         }
         my $cmd = "$unitary -l -q -o mat.res vec.$qn1 mat vec.$qn2";
-        system($cmd);
-        if ($? != 0) { die "unitary call error: $cmd"; }
+        system($cmd) == 0 or die "unitary failed: $?";
         my $res = `cat mat.res`;
         print OUT "$qn1spaces $qn2spaces\n$res";
    } # for $i
@@ -226,7 +223,7 @@ sub unitary
 
 my $target_dir = shift;
 if (defined($target_dir) && -d $target_dir) {
-    system "cp param data $target_dir";
+    system("cp param data $target_dir") == 0 or die;
 }
 
 sub getparam

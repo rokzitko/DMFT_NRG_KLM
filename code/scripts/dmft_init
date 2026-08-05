@@ -15,35 +15,35 @@ if (!-d "res") {
 
 if (-s "DeltaFirst.dat" && !-s "mesh.dat") {
     # Ensure mesh.dat is consistent with the mesh used in DeltaFirst.dat
-    system "cp DeltaFirst.dat mesh.dat";
+    system("cp DeltaFirst.dat mesh.dat") == 0 or die;
 }
 
 if (!-s "DeltaFirst.dat") {
     if (!-s "mesh.dat") {
       # If the mesh is not predefined, generate it using settings from param.loop
-      system "scripts/init_mesh >mesh.dat";
+      system("scripts/init_mesh >mesh.dat") == 0 or die "init_mesh failed: $?";
     }
     # Generate imsigma.dat, resigma.dat
-    system "scripts/init_Sigma";
+    system("scripts/init_Sigma") == 0 or die;
     # Generate lattice Green's function approx, reaw.dat, imaw.dat
-    system "scripts/bandDOS";
+    system("scripts/bandDOS") == 0 or die;
     # Generate hybridization function, ReDelta.dat, ImDelta.dat
-    system "scripts/dmftDOS";
+    system("scripts/dmftDOS") == 0 or die;
     # Generate NRG input file Delta.dat (which is equal to -ImDelta)
-    system "scaley -1 ImDelta.dat >Delta.dat";
+    system("scaley -1 ImDelta.dat >Delta.dat") == 0 or die;
 } else {
     # If DeltaFirst.dat exists, we use it as initial approximation!
-    system "cp DeltaFirst.dat Delta.dat";
+    system("cp DeltaFirst.dat Delta.dat") == 0 or die;
 }
 
 # Ensure Delta.dat and ImDelta.dat are always consistent (measure of precaution, usually not needed)
 if (!-s "ImDelta.dat" && -s "Delta.dat") {
-    system "scaley -1 Delta.dat >ImDelta.dat";
+    system("scaley -1 Delta.dat >ImDelta.dat") == 0 or die;
 }
 
 # Ensure Re and Im parts of hybridization function are always consistent (measure of precaution, usually not needed)
 if (!-s "ReDelta.dat" && -s "ImDelta.dat") {
-    system "kk ImDelta.dat ReDelta.dat";
+    system("kk ImDelta.dat ReDelta.dat") == 0 or die;
 }
 
 -s "param.eps" or die "param.eps not found.";

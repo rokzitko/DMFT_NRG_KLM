@@ -42,6 +42,11 @@ my @reG =   readcol("${prefix}reaw.dat", 2);
 my @imS =   readcol("${prefix}imsigma.dat", 2);
 my @reS =   readcol("${prefix}resigma.dat", 2);
 
+scalar(@omega) == scalar(@imG) or die "ImG mesh mismatch.";
+scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
+scalar(@omega) == scalar(@imS) or die "ImSigma mesh mismatch.";
+scalar(@omega) == scalar(@reS) or die "ReSigma mesh mismatch.";
+
 open(R, ">ReDelta.dat") or die;
 open(I, ">ImDelta.dat") or die;
 

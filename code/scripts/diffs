@@ -23,8 +23,8 @@ sub diff {
  -s $fn2 or die "$fn2 does not exist. Stopped";
 
  # Support for adaptive mesh
- system "resample $fn1 mesh.dat $fn1.tmp";
- system "resample $fn2 mesh.dat $fn2.tmp";
+ system("resample $fn1 mesh.dat $fn1.tmp") == 0 or die "resample failed: $?";
+ system("resample $fn2 mesh.dat $fn2.tmp") == 0 or die "resample failed: $?";
 
  chomp(my $diff = `subtracty $fn1.tmp $fn2.tmp | integrateabs`);
  print "diff($fn1 - $fn2)=$diff\n";
