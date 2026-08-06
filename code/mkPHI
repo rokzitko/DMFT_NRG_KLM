@@ -1,0 +1,11 @@
+#!/usr/bin/env wolframscript
+
+(* Note: remember to modify the prefactor in bbl* file according to the normalization of Phi(epsilon) function. *)
+(* Here we use Phi=(2/pi)(1-epsilon^2)^(3/2), thus the (2/pi) is explicitly part of PHI.dat. *)
+(* In this case, we only need the factor of pi^2 in bbl* *)
+(* RZ, Aug 2026 *)
+
+m = Table[x, {x,-1.3,1.3,0.001}];
+phi[w_] := If[ Abs[w]<=1.0, 2/Pi (1-w^2)^(3/2), 0.0 ]; (* Note that we include here the factor of 2/pi *)
+l= Map[{#, phi[#]}&, m];
+Export["PHI.dat", l];
