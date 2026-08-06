@@ -1,0 +1,21 @@
+#!/usr/bin/env perl
+# Computes kinetic energy
+# Rok Zitko, nov 2017
+chomp(my $T = `getparam T param.loop`);
+
+# Chemical potential
+my $mu = `cat param.mu`;
+chomp($mu);
+
+# epsilon_d
+my $eps = `cat param.eps`;
+chomp($eps);
+
+my $shift = $mu-$eps;
+
+my $res = `bubble -e 1 -p DOS.dat -f 0 1 0 -- $T $shift resigma.dat imsigma.dat`;
+$res *= 2; # spin!
+
+open(O, ">ekin.dat");
+print O "$res\n";
+close O;
