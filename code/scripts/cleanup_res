@@ -2,7 +2,7 @@
 # Clean up after the calculation
 # Rok Zitko, Aug 2026
 rm -fr res/ dmft/
-rm -f Delta.dat imaw.dat reaw.dat imsigma.dat resigma.dat self.dat
+rm -f Delta.dat imaw.dat reaw.dat imaw.dat.prev imsigma.dat resigma.dat self.dat
 rm -f FSOL.dat FSOLNEG.dat
 rm -f ImDelta.dat ReDelta.dat
 rm -f custom custom.avg customfdm customfdm.avg

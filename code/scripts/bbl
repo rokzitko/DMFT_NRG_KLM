@@ -11,7 +11,7 @@ my $verbose = 1;
 
 chomp(my $T = `getparam T param.loop`);
 
-my $factor = 2*pi; 
+my $factor = 2*pi;
 # (2/pi) * pi^2
 # (2/pi) from the kernel Phi = 2/pi Sqrt[...]
 # pi^2 from the difference between A(w)=-1/Pi Im[..] and a(w)=-Im[..]
