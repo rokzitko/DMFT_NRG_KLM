@@ -1,0 +1,48 @@
+#!/usr/bin/env perl
+# Calculate optical conductivity
+# Warning: This scripts read Phi(epsilon) from a file
+# Rok Zitko, rok.zitko@ijs.si, 2017-2026
+
+use strict;
+use warnings;
+use Math::Complex;
+
+my $verbose = 1;
+
+chomp(my $T = `getparam T param.loop`);
+
+my $factor = pi**2;
+# pi^2 from the difference between A(w)=-1/Pi Im[..] and a(w)=-Im[..]
+
+# Chemical potential
+my $mu = `cat param.mu`;
+chomp($mu);
+
+# epsilon_d
+my $eps = `cat param.eps`;
+chomp($eps);
+
+my $shift = $mu-$eps;
+
+my $fn = "PHI.dat"; # transport function
+my $param = "-p $fn -c 20 -a 1e-8 -r 1e-7"; # numerical integration parameters
+
+sub calc {
+    my $Omega = shift;
+    my $res = `bubble -q -O $Omega $param 0 2 0 -- $T $shift resigma.dat imsigma.dat`;
+    my $a0 = $factor*$res;
+    my $cond = $a0;
+    return $cond;
+}
+
+open(O, ">cond.opt-PHI.dat") or die;
+
+for (my $Omega = 1e-7; $Omega < 5.0; $Omega *= 1.1) {
+    my $cond = calc($Omega);
+    if ($verbose) {
+        print "$Omega $cond\n";
+    }
+    print O "$Omega $cond\n";
+}
+
+close O;
