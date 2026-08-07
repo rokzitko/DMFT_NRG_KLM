@@ -61,7 +61,7 @@ for (my $i = 0; $i < $len; $i++) {
     my $g01 = 1/$GF + $sigma;
 
     # Delta(z) = Im(z-G_0^-1)
-    my $Delta = $o + $mu - $g01;
+    my $Delta = $o + $mu - $eps - $g01;
 
     my $re = Re($Delta); # stored in ReDelta.dat
     my $im = Im($Delta); # stored in ImDelta.dat
