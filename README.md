@@ -153,7 +153,7 @@ The local Green function and spectral function are
 G^R_{\mathrm{loc}}(\omega)
 =\int d\epsilon\,\rho_0(\epsilon)G^R_\epsilon(\omega),
 \qquad
-A(\omega)=-\frac{1}{\pi}\operatorname{Im}G^R(\omega).
+A(\omega)=-\frac{1}{\pi}\mathrm{Im}\,G^R(\omega).
 ```
 
 Thus `Im Sigma^R <= 0`, `Im Delta^R <= 0`, and a normalized one-particle
@@ -222,9 +222,9 @@ The implementation normally evaluates the more general Hilbert transform
 using the tabulated `DOS.dat`, then constructs
 
 ```math
-{\cal G}_0^{-1}=(G^R_{\mathrm{loc}})^{-1}+\Sigma^R,
+\mathcal{G}_0^{-1}=(G^R_{\mathrm{loc}})^{-1}+\Sigma^R,
 \qquad
-\Delta^R=\omega+\mu-\epsilon_d-{\cal G}_0^{-1}.
+\Delta^R=\omega+\mu-\epsilon_d-\mathcal{G}_0^{-1}.
 ```
 
 The last equation is the intended convention.  The current
@@ -328,8 +328,7 @@ use equivalent prefactors:
 
 ```math
 \begin{aligned}
-\texttt{bbl}:&\quad (2/\pi)\pi^2=2\pi,
-\\
+\texttt{bbl}:&\quad (2/\pi)\pi^2=2\pi, \\[0pt]
 \texttt{bbl-PHI}:&\quad \pi^2,
 \end{aligned}
 ```
@@ -342,7 +341,7 @@ For `D = 1`, define
 
 ```math
 A_\epsilon(\omega)=-\frac{1}{\pi}
-\operatorname{Im}G^R_\epsilon(\omega).
+\mathrm{Im}\,G^R_\epsilon(\omega).
 ```
 
 For `Omega > 0`, the raw finite-frequency result returned by `bubble` with a
@@ -373,7 +372,7 @@ factors of `-Im G`.
 For comparison, the regular absorptive part in the usual Kubo convention is
 
 ```math
-\operatorname{Re}\sigma_{xx}^{\mathrm{Kubo,reg}}(\Omega)
+\mathrm{Re}\,\sigma_{xx}^{\mathrm{Kubo,reg}}(\Omega)
 =\pi e^2\sum_\sigma
 \int d\epsilon\,\Phi_{xx}(\epsilon)
 \int d\omega\,
@@ -391,7 +390,7 @@ purely algebraic relation
 ```math
 \sigma_{\mathrm{code}}
 =\frac{3\pi d}{2e^2}\,
-\operatorname{Re}\sigma_{xx}^{\mathrm{Kubo,reg}},
+\mathrm{Re}\,\sigma_{xx}^{\mathrm{Kubo,reg}},
 ```
 
 before restoring lattice-spacing and volume factors.  This comparison explains
@@ -474,11 +473,9 @@ Using the project definition `sigma_code=pi^2 B` and the Bethe identity
 \begin{aligned}
 \int_0^\infty d\Omega\,\sigma_{\mathrm{code}}(\Omega)
 &=\frac{\pi^2}{2}
-  \int d\epsilon\,\Phi'(\epsilon)n_\epsilon
-\\
+  \int d\epsilon\,\Phi'(\epsilon)n_\epsilon \\[0pt]
 &=-\frac{3\pi^2}{2}
-  \int d\epsilon\,\epsilon\rho_0(\epsilon)n_\epsilon
-\\
+  \int d\epsilon\,\epsilon\rho_0(\epsilon)n_\epsilon \\[0pt]
 &=-\frac{3\pi^2}{4}E_{\mathrm{kin}}.
 \end{aligned}
 ```
@@ -507,7 +504,7 @@ explicit two-spin sum, the familiar form is
 
 ```math
 \int_0^\infty d\Omega\,
-\operatorname{Re}\sigma_{xx}^{\mathrm{Kubo}}(\Omega)
+\mathrm{Re}\,\sigma_{xx}^{\mathrm{Kubo}}(\Omega)
 =-\frac{\pi e^2}{2d}E_{\mathrm{kin}}.
 ```
 
@@ -569,16 +566,11 @@ They then write
 
 ```math
 \begin{aligned}
-\texttt{condMIR.dat}:&\quad \sigma_{\mathrm{code}}=a_0,
-\\
-\texttt{rhoMIR.dat}:&\quad \rho_{\mathrm{code}}=1/a_0,
-\\
-\texttt{thermopowerS.dat}:&\quad S=-A_1/A_0,
-\\
-\texttt{kappa.dat}:&\quad \kappa=A_2-A_1^2/A_0,
-\\
-\texttt{LL.dat}:&\quad L_{\mathrm{raw}}=A_2/A_0,
-\\
+\texttt{condMIR.dat}:&\quad \sigma_{\mathrm{code}}=a_0, \\[0pt]
+\texttt{rhoMIR.dat}:&\quad \rho_{\mathrm{code}}=1/a_0, \\[0pt]
+\texttt{thermopowerS.dat}:&\quad S=-A_1/A_0, \\[0pt]
+\texttt{kappa.dat}:&\quad \kappa=A_2-A_1^2/A_0, \\[0pt]
+\texttt{LL.dat}:&\quad L_{\mathrm{raw}}=A_2/A_0, \\[0pt]
 \texttt{ZT.dat}:&\quad ZT=S^2a_0T/\kappa.
 \end{aligned}
 ```
