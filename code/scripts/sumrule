@@ -1,0 +1,20 @@
+#!/usr/bin/env perl
+# f-sum rule
+# This follows from a relation between Phi and DOS for Bethe lattice (and our normalization conventions).
+# See also Arsenault, Tremblay PRB, https://doi.org/10.1103/PhysRevB.88.205109
+# Rok Zitko, aug 2026
+
+use strict;
+use warnings;
+use Math::Complex;
+
+my $ekin = `cat ekin.dat`;
+my $rhoint = `integrate cond.opt-PHI.dat`;
+
+my $ratio = $rhoint/(-$ekin);
+
+my $expected = 3*pi**2/4;
+
+my $r = $ratio/$expected;
+
+print "r=$r\n";
