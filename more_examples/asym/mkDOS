@@ -1,0 +1,6 @@
+#!/usr/bin/env wolframscript
+
+m = Table[x, {x,-1.6,1.6,0.001}];
+rho[w_] := If[ Abs[w]<=1.0, 2./Pi Sqrt[1-w^2] (1-0.9*w), 0.0 ];
+dos = Map[{#, Re @ rho[#-0.4]}&, m];
+Export["DOS.dat", dos];
