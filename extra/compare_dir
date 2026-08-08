@@ -1,0 +1,37 @@
+#!/usr/bin/env perl
+# Compare files in a reference directory (supplied as the command line argument)
+# with the files in the current directory. Resample to compensate for possible different
+# discretization grids. Compute differences. Report failure if total integrated errors
+# is larger than $limit.
+# Rok Zitko, aug 2026
+
+my $limit = 1e-4;
+
+my $dir = shift;
+
+-d $dir or die;
+chdir $dir or die;
+
+my $sum = 0;
+
+foreach (<*>) {
+    -s or next;
+    system("resample ../$_ $_ tmp") == 0 or die "resample failed: $?";
+    system "subtracty $_ tmp >diff";
+    unlink("tmp");
+    my $diff = `integrateabs diff`;
+    chomp($diff);
+    print "$_ $diff\n";
+    unlink("diff");
+    $sum += $diff;
+}
+
+print "Total=$sum\n";
+
+if ($sum > $limit) {
+    print "FAILURE.\n";
+    exit(1);
+} else {
+    print "SUCCESS.\n";
+    exit(1);
+}
