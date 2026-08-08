@@ -14,12 +14,19 @@ chdir $dir or die;
 
 my $sum = 0;
 
-foreach (<*>) {
+foreach (<*.dat>) {
     -s or next;
-    system("resample ../$_ $_ tmp") == 0 or die "resample failed: $?";
-    system "subtracty $_ tmp >diff";
-    unlink("tmp");
-    my $diff = `integrateabs diff`;
+    chomp(my $count = `wc -l < $_`);
+    my $diff;
+    if ($count > 1) {
+        system("resample ../$_ $_ tmp") == 0 or next; # Skip cases where resampling fails
+        system "subtracty $_ tmp >diff";
+        unlink("tmp");
+        $diff = `integrateabs diff`;
+    } else {
+        system "subtract $_ ../$_ >diff";
+        $diff = `cat diff`;
+    }
     chomp($diff);
     print "$_ $diff\n";
     unlink("diff");
