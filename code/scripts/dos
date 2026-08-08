@@ -23,4 +23,4 @@ chomp($eps);
 my $shift = $mu-$eps;
 
 # Compute dos.dat to be compared with imaw.dat
-system "bubble -d $param 0 1 0 -- $T $shift resigma.dat imsigma.dat";
+system "bubble -d $param 0 1 0 $T $shift resigma.dat imsigma.dat";

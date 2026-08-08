@@ -27,11 +27,11 @@ chomp($eps);
 my $shift = $mu-$eps;
 
 my $res;
-$res = `bubble 5 2 0 -- $T $shift resigma.dat imsigma.dat`;
+$res = `bubble 5 2 0 $T $shift resigma.dat imsigma.dat`;
 my $a0 = $factor*$res;
-$res = `bubble 5 2 1 -- $T $shift resigma.dat imsigma.dat`;
+$res = `bubble 5 2 1 $T $shift resigma.dat imsigma.dat`;
 my $a1 = $factor*$res;
-$res = `bubble 5 2 2 -- $T $shift resigma.dat imsigma.dat`;
+$res = `bubble 5 2 2 $T $shift resigma.dat imsigma.dat`;
 my $a2 = $factor*$res;
 
 my $A0 = $a0*$T;

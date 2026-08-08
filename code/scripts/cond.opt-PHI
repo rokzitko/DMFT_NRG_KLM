@@ -29,7 +29,7 @@ my $param = "-p $fn -c 20 -a 1e-8 -r 1e-7"; # numerical integration parameters
 
 sub calc {
     my $Omega = shift;
-    my $res = `bubble -q -O $Omega $param 0 2 0 -- $T $shift resigma.dat imsigma.dat`;
+    my $res = `bubble -q -O $Omega $param 0 2 0 $T $shift resigma.dat imsigma.dat`;
     my $a0 = $factor*$res;
     my $cond = $a0;
     return $cond;

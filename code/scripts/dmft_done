@@ -137,7 +137,7 @@ system("clipy b $clip Delta.dat.TEMP >Delta.dat") == 0 or die;
 -s "Delta.dat" or die "Clipping failed.";
 
 system("scaley -1 Delta.dat >ImDelta.dat") == 0 or die; # ensure we have consistent set of hybridizaiton files
-system("kk ImDelta.dat ReDelta.dat") == 0 or die;
+system("scripts/mkReDelta") == 0 or die;
 
 # Remove 1/, 2/, etc.
 msg("delete_NRG_output");

@@ -10,7 +10,7 @@ if (!-d "dmft") {
 }
 
 if (!-d "res") {
-    mkdir "res" or die "Cant create subdit res, stopped";
+    mkdir "res" or die "Can't create subdir res, stopped";
 }
 
 if (-s "DeltaFirst.dat" && !-s "mesh.dat") {
@@ -43,9 +43,19 @@ if (!-s "ImDelta.dat" && -s "Delta.dat") {
 
 # Ensure Re and Im parts of hybridization function are always consistent (measure of precaution, usually not needed)
 if (!-s "ReDelta.dat" && -s "ImDelta.dat") {
-    system("kk ImDelta.dat ReDelta.dat") == 0 or die;
+    system("scripts/mkReDelta");
 }
 
 -s "param.eps" or die "param.eps not found.";
 -s "param.mu" or die "param.mu not found.";
 -s "param.loop" or die "Parameter file param.loop not found.";
+
+sub read_number {
+    my ($file) = @_;
+    open my $fh, '<', $file or die "Cannot open '$file': $!";
+    local $/; my $s = <$fh>;
+    $s =~ s/^\s+|\s+$//g;
+    $s =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
+        or die "Invalid numeric value in '$file': '$s'";
+    return 0 + $s;
+}

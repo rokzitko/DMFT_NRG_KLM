@@ -37,6 +37,15 @@ if ($abs < $convergencelimit && $iter > $miniter) {
     if (-x "scripts/bbl") {
         system("scripts/bbl") == 0 or die;
     }
+    if (-x "scripts/dos") {
+        system("scripts/dos") == 0 or die;
+    }
+    if (-x "scripts/ekin") {
+        system("scripts/ekin") == 0 or die;
+    }
+    if (-x "scripts/cond.opt-PHI") {
+        system("scripts/cond.opt-PHI") == 0 or die;
+    }
 } else {
     print "Not converged yet. $abs > $convergencelimit\n";
     if ($iter > $maxiter) {

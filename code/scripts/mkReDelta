@@ -1,0 +1,28 @@
+#!/usr/bin/env perl
+# Build ReDelta.dat from ImDelta.dat and param.eps
+# Rok Zitko, 2026
+
+use strict;
+use warnings;
+
+-e "ImDelta.dat" or die;
+-e "param.eps" or die;
+
+system("kk ImDelta.dat ReDelta.dat.tmp") == 0 or die;
+my $eps = read_number("param.eps");
+system("shifty $eps ReDelta.dat.tmp >ReDelta.dat") == 0 or die;
+unlink("ReDelta.dat.tmp");
+
+-e "ReDelta.dat" or die;
+
+# ---
+
+sub read_number {
+    my ($file) = @_;
+    open my $fh, '<', $file or die "Cannot open '$file': $!";
+    local $/; my $s = <$fh>;
+    $s =~ s/^\s+|\s+$//g;
+    $s =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
+        or die "Invalid numeric value in '$file': '$s'";
+    return 0 + $s;
+}

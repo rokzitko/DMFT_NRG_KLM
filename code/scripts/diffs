@@ -28,7 +28,7 @@ sub diff {
 
  chomp(my $diff = `subtracty $fn1.tmp $fn2.tmp | integrateabs`);
  print "diff($fn1 - $fn2)=$diff\n";
- $diff != "" or die "Calculation of diff failed.";
+ $diff ne "" or die "Calculation of diff failed.";
  $diff != 0 or die "Difference is exactly zero. This is very suspicious. Stopping";
 
  # NOTE: This is simply an integral of A(w) from -inf to 0, so it only corresponds to occupancy

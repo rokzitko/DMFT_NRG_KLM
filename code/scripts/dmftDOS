@@ -6,6 +6,11 @@ use strict;
 use warnings;
 use Math::Complex;
 
+# We can treat lattice energy offset in two ways:
+# - "eps": band energy offset contained in param.eps, shift ReDelta accordingly
+# - "mu": exclude the explicity eps term
+my $convention = "eps";
+
 # Read a column from a file
 sub readcol {
     my ($filename, $column) = @_;
@@ -47,6 +52,8 @@ scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
 scalar(@omega) == scalar(@imS) or die "ImSigma mesh mismatch.";
 scalar(@omega) == scalar(@reS) or die "ReSigma mesh mismatch.";
 
+# Important: this writes ReDelta.dat and ImDelta.dat in the current directory.
+# It does *not* overwrite res/ReDelta.dat and res/ImDelta.dat.
 open(R, ">ReDelta.dat") or die;
 open(I, ">ImDelta.dat") or die;
 
@@ -60,8 +67,15 @@ for (my $i = 0; $i < $len; $i++) {
     # G_0^-1 = G^-1_local + Sigma
     my $g01 = 1/$GF + $sigma;
 
-    # Delta(z) = Im(z-G_0^-1)
-    my $Delta = $o + $mu - $eps - $g01;
+    # Delta(z) = Im(z+mu-G_0^-1)
+    my $Delta;
+    if ($convention eq "eps") {
+        # NOTE: include a shift $eps
+        $Delta = $o + $mu - $eps - $g01;
+    } else {
+        # NOTE: No -$eps in the following line.
+        $Delta = $o + $mu - $g01;
+    }
 
     my $re = Re($Delta); # stored in ReDelta.dat
     my $im = Im($Delta); # stored in ImDelta.dat

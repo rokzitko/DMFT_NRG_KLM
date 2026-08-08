@@ -13,7 +13,7 @@ chomp($eps);
 
 my $shift = $mu-$eps;
 
-my $res = `bubble -e 1 -p DOS.dat -f 0 1 0 -- $T $shift resigma.dat imsigma.dat`;
+my $res = `bubble -e 1 -p DOS.dat -f 0 1 0 $T $shift resigma.dat imsigma.dat`;
 $res *= 2; # spin!
 
 open(O, ">ekin.dat");
