@@ -1,4 +1,5 @@
-Example code for dynamical mean-field theory (DMFT) calculation using the NRG Ljubljana code as
+Example code for dynamical mean-field theory (DMFT) calculation using the [NRG
+Ljubljana](https://github.com/rokzitko/nrgljubljana) code as
 the impurity solver
 
 Model: Kondo lattice model (KLM), S=1/2; model description in template/.
@@ -11,7 +12,7 @@ Features:
 - robust band occupancy control by shifting chemical potential mu
 - simple mixing (implemented at the level of hybridisation function)
 - adaptive grid for better capturing sharp spectral features
-- transport calculation using external "bubble" code
+- transport calculation using external [bubble](https://github.com/rokzitko/bubble) code
 
 Requirements:
 - NRG Ljubljana with associated tools (hilb, kk, adapt, nrgchain, broaden, resample, matrix, diag, unitary)
