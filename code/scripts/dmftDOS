@@ -6,11 +6,6 @@ use strict;
 use warnings;
 use Math::Complex;
 
-# We can treat lattice energy offset in two ways:
-# - "eps": band energy offset contained in param.eps, shift ReDelta accordingly
-# - "mu": exclude the explicity eps term
-my $convention = "eps";
-
 # Read a column from a file
 sub readcol {
     my ($filename, $column) = @_;
@@ -29,16 +24,12 @@ sub readcol {
 
 my $pi = pi;
 
-chomp(my $positiveshift = `getparam clip param.loop`);
-print "dmftDOS - positiveshift=$positiveshift\n";
+chomp(my $clip = `getparam clip param.loop`);
+print "dmftDOS - clip=$clip\n";
 
 # Chemical potential
 my $mu = `cat param.mu`;
 chomp($mu);
-
-# epsilon_d
-my $eps = `cat param.eps`;
-chomp($eps);
 
 my $prefix = "res/";
 my @omega = readcol("${prefix}imaw.dat", 1);
@@ -67,22 +58,15 @@ for (my $i = 0; $i < $len; $i++) {
     # G_0^-1 = G^-1_local + Sigma
     my $g01 = 1/$GF + $sigma;
 
-    # Delta(z) = Im(z+mu-G_0^-1)
-    my $Delta;
-    if ($convention eq "eps") {
-        # NOTE: include a shift $eps
-        $Delta = $o + $mu - $eps - $g01;
-    } else {
-        # NOTE: No -$eps in the following line.
-        $Delta = $o + $mu - $g01;
-    }
+    # Delta(z) = z+mu-G_0^-1
+    my $Delta = $o + $mu - $g01;
 
     my $re = Re($Delta); # stored in ReDelta.dat
     my $im = Im($Delta); # stored in ImDelta.dat
 
     # Perform ImDelta.dat clipping to ensure hybridization function (Gamma=-ImDelta) is positive (!)
-    if ($im > $positiveshift) {
-        $im = -$positiveshift;
+    if ($im > $clip) {
+        $im = -$clip;
     }
 
     print R "$o $re\n";

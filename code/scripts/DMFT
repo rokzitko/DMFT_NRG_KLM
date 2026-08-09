@@ -10,22 +10,26 @@ my $local = 1; #0=submit a Slurm job, 1=run locally
 
 -e "DOS.dat" or die "Tabulated density of states DOS.dat must exist.";
 
-if (!-e "Delta.dat") {
+if (!(-e "ReDelta.dat" && -e "ImDelta.dat")) {
     system("scripts/dmft_init") == 0 or die "dmft_init failed: $?";
 }
+
+system("scaley -1 ImDelta.dat >Delta.dat") == 0 or die;
+-s "Delta.dat" or error("Hybridisation function not found, stopped");
+system("scripts/ReDelta_shift") == 0 or die;
+-s "param.shift" or die;
 
 my $Nz = `getparam Nz param.loop`;
 chomp($Nz);
 
 # Chemical potential
-my $mu = `cat param.mu`;
-chomp($mu);
+chomp(my $mu = `cat param.mu`);
 
-# epsilon_d
-my $eps = `cat param.eps`;
-chomp($eps);
+# Additional energy-level shift
+chomp(my $shift = `cat param.eps`); # Select param.eps or param.shift here!
 
-my $epsimp = $eps-$mu;
+my $epsimp = $shift-$mu;
+print "mu=$mu shift=$shift $epsimp=$epsimp\n";
 
 # Perform the discretization
 system("m4 -DEPS=$epsimp -DZZZ=1 param.loop >param") == 0 or die "m4 failed: $?";

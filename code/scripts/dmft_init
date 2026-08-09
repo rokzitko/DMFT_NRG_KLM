@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# dmft_init - prepare a new DMFT run (called from dmft_monitor)
+# dmft_init - prepare a new DMFT run
 # Rok Zitko, 2008-2026
 
 use strict;
@@ -13,12 +13,18 @@ if (!-d "res") {
     mkdir "res" or die "Can't create subdir res, stopped";
 }
 
-if (-s "DeltaFirst.dat" && !-s "mesh.dat") {
-    # Ensure mesh.dat is consistent with the mesh used in DeltaFirst.dat
-    system("cp DeltaFirst.dat mesh.dat") == 0 or die;
-}
+-s "param.mu" or die "Chemical potential param.mu not found.";
+-s "param.loop" or die "Parameter file param.loop not found.";
 
-if (!-s "DeltaFirst.dat") {
+if (-s "ReDeltaFirst.dat" && -s "ImDeltaFirst.dat") {
+    # Preexisting initial approximation for hybridization function Delta(z)
+    system("cp ReDeltaFirst.dat ReDelta.dat") == 0 or die;
+    system("cp ImDeltaFirst.dat ImDelta.dat") == 0 or die;
+    if (!-s "mesh.dat") {
+        # Ensure mesh.dat is consistent with the mesh used in *DeltaFirst.dat
+        system("cp ReDelta.dat mesh.dat") == 0 or die;
+    }
+} else {
     if (!-s "mesh.dat") {
       # If the mesh is not predefined, generate it using settings from param.loop
       system("scripts/init_mesh >mesh.dat") == 0 or die "init_mesh failed: $?";
@@ -29,26 +35,10 @@ if (!-s "DeltaFirst.dat") {
     system("scripts/bandDOS") == 0 or die;
     # Generate hybridization function, ReDelta.dat, ImDelta.dat
     system("scripts/dmftDOS") == 0 or die;
-    # Generate NRG input file Delta.dat (which is equal to -ImDelta)
-    system("scaley -1 ImDelta.dat >Delta.dat") == 0 or die;
-} else {
-    # If DeltaFirst.dat exists, we use it as initial approximation!
-    system("cp DeltaFirst.dat Delta.dat") == 0 or die;
 }
 
-# Ensure Delta.dat and ImDelta.dat are always consistent (measure of precaution, usually not needed)
-if (!-s "ImDelta.dat" && -s "Delta.dat") {
-    system("scaley -1 Delta.dat >ImDelta.dat") == 0 or die;
-}
-
-# Ensure Re and Im parts of hybridization function are always consistent (measure of precaution, usually not needed)
-if (!-s "ReDelta.dat" && -s "ImDelta.dat") {
-    system("scripts/mkReDelta");
-}
-
--s "param.eps" or die "param.eps not found.";
--s "param.mu" or die "param.mu not found.";
--s "param.loop" or die "Parameter file param.loop not found.";
+-s "ReDelta.dat" or die;
+-s "ImDelta.dat" or die;
 
 sub read_number {
     my ($file) = @_;

@@ -2,6 +2,7 @@
 # Impurity level
 eps1=EPS
 
+# Hubbard parameter
 U1=0
 
 # Kondo parameters
@@ -13,12 +14,12 @@ B=0
 # Number of discretization grids for NRG
 Nz=4
 
-# Clipping value for ImSigma.
+# Clipping value for ImSigma and ImDelta
 clip=1e-5
 
 # Conduction band occupancy
 goal=0.8
-maxdx=0.01
+maxdx=0.05
 under=0.5
 
 # Linear mixing parameter for Delta.dat
@@ -28,7 +29,7 @@ alpha=0.5
 # difference between two iterations)
 conveps=1e-8
 miniter=10
-maxiter=50
+maxiter=100
 
 # Mesh optimization parameters
 opt_delta=0.03

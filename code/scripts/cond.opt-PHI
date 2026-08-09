@@ -18,18 +18,12 @@ my $factor = pi**2;
 my $mu = `cat param.mu`;
 chomp($mu);
 
-# epsilon_d
-my $eps = `cat param.eps`;
-chomp($eps);
-
-my $shift = $mu-$eps;
-
 my $fn = "PHI.dat"; # transport function
-my $param = "-p $fn -c 20 -a 1e-8 -r 1e-7"; # numerical integration parameters
+my $param = "-p $fn -c 30 -a 1e-8 -r 1e-7 -i 3 -k 6 -E"; # numerical integration parameters
 
 sub calc {
     my $Omega = shift;
-    my $res = `bubble -q -O $Omega $param 0 2 0 $T $shift resigma.dat imsigma.dat`;
+    my $res = `bubble -q -O $Omega $param 0 2 0 $T $mu resigma.dat imsigma.dat`;
     my $a0 = $factor*$res;
     my $cond = $a0;
     return $cond;

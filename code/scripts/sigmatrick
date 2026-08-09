@@ -8,7 +8,7 @@ use strict;
 use warnings;
 use Math::Complex;
 
-my $imclip = 1e-6; # "infinitesimal" clipping value for Im(Sigma), to prevent causality violations
+my $imclip = `getparam clip param.loop` # "infinitesimal" clipping value for Im(Sigma), to prevent causality violations
 
 my $prefix = (-d "res" ? "res" : ".");
 
@@ -33,14 +33,11 @@ my $SigmaH = `extractcolumn customfdm.avg SigmaHd`;
 chomp($SigmaH);
 
 # Chemical potential
-my $mu = `cat param.mu`;
-chomp($mu);
+chomp(my $mu = `cat param.mu`);
+print "mu=$mu\n";
 
-# epsilon_d
-my $eps = `cat param.eps`;
-chomp($eps);
-
-print "mu=$mu eps=$eps\n";
+# Note that the required shift is already contained in ReDelta.dat; no shift
+# needs to be read from a file!
 
 my @imdelta = readcol("$prefix/ImDelta.dat", 2);
 my @redelta = readcol("$prefix/ReDelta.dat", 2);
@@ -74,7 +71,7 @@ for (my $i = 0; $i < $len; $i++) {
 
   my $delta = i * $imdelta[$i] + $redelta[$i];
 
-  my $gf = 1.0/($o + $mu - $eps - $delta - $sigma);
+  my $gf = 1.0/($o + $mu - $delta - $sigma);
   my $aw = -1.0/pi * Im($gf);
 
   print SELF "$o $aw\n";

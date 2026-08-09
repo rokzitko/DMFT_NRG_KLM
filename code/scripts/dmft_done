@@ -35,7 +35,6 @@ system("rm -f res/*") == 0 or die;
 
 # Store a copy of Hybridisation function used in the calculation in res/. The idea is that all files in res/ are consistent as regards
 # the frequency grid, e.g., after running average and realparts, to have a consistent input for sigmatrick script.
-system("cp -v Delta.dat res/Delta.dat") == 0 or die;
 system("cp -v ReDelta.dat res/ReDelta.dat") == 0 or die;
 system("cp -v ImDelta.dat res/ImDelta.dat") == 0 or die;
 
@@ -92,32 +91,38 @@ system("scripts/diffs") == 0 or die "diffs failed: $?";
 
 # Compute hybridization function ImDelta.dat, ReDelta.dat
 msg("dmftDOS");
-system("mv Delta.dat Delta.dat.OLD") == 0 or die; # save the old one!
--s "Delta.dat.OLD" or die "Failed to create Delta.dat.OLD";
-system("scripts/dmftDOS") == 0 or die "dmftDOS failed: $?"; # This produces ImDelta.dat, ReDelta.dat, but not Delta.dat!
-(-s "ImDelta.dat" && -s "ReDelta.dat") or error("Delta not found, stopped");
-system("scaley -1 ImDelta.dat >Delta.dat.NEW") == 0 or die; # ImDelta.dat is the new one!
--s "Delta.dat.NEW" or error("Hybridisation function not found, stopped");
+system("mv ReDelta.dat ReDelta.dat.OLD") == 0 or die; # save the old ones!
+system("mv ImDelta.dat ImDelta.dat.OLD") == 0 or die;
+-s "ReDelta.dat.OLD" or die "Failed to create ReDelta.dat.OLD";
+-s "ImDelta.dat.OLD" or die "Failed to create ImDelta.dat.OLD";
+system("scripts/dmftDOS") == 0 or die "dmftDOS failed: $?"; # This produces new ImDelta.dat, ReDelta.dat
+(-s "ImDelta.dat" && -s "ReDelta.dat") or error("dmftDOS failed, output files not found, stopped");
+system("mv ReDelta.dat ReDelta.dat.NEW") == 0 or die;
+system("mv ImDelta.dat ImDelta.dat.NEW") == 0 or die;
 
-# Compute input for next NRG iteration; here we work with Delta.dat (not ImDelta.dat, ReDelta.dat)
 if ($mesh_refinement) {
     # Refine the mesh
     chomp(my $delta = `getparam opt_delta param.loop`);
     chomp(my $mindx = `getparam opt_mindx param.loop`);
     chomp(my $ymin  = `getparam opt_ymin  param.loop`);
     print "mesh optimization with delta=$delta mindx=$mindx ymin=$ymin\n";
-    system("optimize_mesh Delta.dat.NEW $delta $mindx $ymin >Delta.dat.NEW-opt 2>logNEW") == 0 or die;
-    system("mesh_union Delta.dat.OLD Delta.dat.NEW-opt >mesh.dat 2>logUNION") == 0 or die;
-    system("resample Delta.dat.OLD mesh.dat     Delta.dat.OLD-common") == 0 or die;
-    system("resample Delta.dat.NEW-opt mesh.dat Delta.dat.NEW-common") == 0 or die;
+    system("optimize_mesh ImDelta.dat.NEW $delta $mindx $ymin >ImDelta.dat.NEW-opt 2>logNEW") == 0 or die;
+    system("mesh_union ImDelta.dat.OLD ImDelta.dat.NEW-opt >mesh.dat 2>logUNION") == 0 or die;
+    # Resampling
+    system("resample ReDelta.dat.OLD mesh.dat     ReDelta.dat.OLD-common") == 0 or die;
+    system("resample ReDelta.dat.NEW mesh.dat     ReDelta.dat.NEW-common") == 0 or die;
+    system("resample ImDelta.dat.OLD mesh.dat     ImDelta.dat.OLD-common") == 0 or die;
+    system("resample ImDelta.dat.NEW mesh.dat     ImDelta.dat.NEW-common") == 0 or die;
 
     my $iter = `getiter`;
     system "cp logNEW logNEW.$iter";
     system "cp logUNION logUNION.$iter";
 } else {
     print "Mesh refinement disabled.\n";
-    system("cp Delta.dat.OLD Delta.dat.OLD-common") == 0 or die;
-    system("cp Delta.dat.NEW Delta.dat.NEW-common") == 0 or die;
+    system("cp ReDelta.dat.OLD ReDelta.dat.OLD-common") == 0 or die;
+    system("cp ReDelta.dat.NEW ReDelta.dat.NEW-common") == 0 or die;
+    system("cp ImDelta.dat.OLD ImDelta.dat.OLD-common") == 0 or die;
+    system("cp ImDelta.dat.NEW ImDelta.dat.NEW-common") == 0 or die;
 }
 
 # Mixing of hybridization function
@@ -126,18 +131,19 @@ print "alpha=$alpha\n";
 $alpha > 0 or die "alpha is zero; 0<alpha<=1";
 my $f1 = $alpha;
 my $f2 = 1.0-$alpha;
-system("mixy $f1 Delta.dat.NEW-common $f2 Delta.dat.OLD-common >Delta.dat.TEMP") == 0 or die;
--s "Delta.dat.TEMP" or die "Mixing failed.";
+system("mixy $f1 ReDelta.dat.NEW-common $f2 ReDelta.dat.OLD-common >ReDelta.dat.TEMP") == 0 or die;
+-s "ReDelta.dat.TEMP" or die "ReDelta Mixing failed.";
+system("mixy $f1 ImDelta.dat.NEW-common $f2 ImDelta.dat.OLD-common >ImDelta.dat.TEMP") == 0 or die;
+-s "ImDelta.dat.TEMP" or die "ImDelta Mixing failed.";
 
-# Clipping of hybridization function
+# Clipping of the hybridization function
 chomp(my $clip = `getparam clip param.loop`);
 print "clip=$clip\n";
 $clip > 0 or die "clip must be non-zero.";
-system("clipy b $clip Delta.dat.TEMP >Delta.dat") == 0 or die;
--s "Delta.dat" or die "Clipping failed.";
-
-system("scaley -1 Delta.dat >ImDelta.dat") == 0 or die; # ensure we have consistent set of hybridizaiton files
-system("scripts/mkReDelta") == 0 or die;
+system("clipy t -$clip ImDelta.dat.TEMP >ImDelta.dat") == 0 or die;
+-s "ImDelta.dat" or die "Clipping failed.";
+system("cp ReDelta.dat.TEMP ReDelta.dat"); # just copy, no other processing
+-s "ReDelta.dat" or die "Copying failed.";
 
 # Remove 1/, 2/, etc.
 msg("delete_NRG_output");

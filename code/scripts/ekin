@@ -4,16 +4,11 @@
 chomp(my $T = `getparam T param.loop`);
 
 # Chemical potential
-my $mu = `cat param.mu`;
-chomp($mu);
+chomp(my $mu = `cat param.mu`);
 
-# epsilon_d
-my $eps = `cat param.eps`;
-chomp($eps);
+my $param = "-c 30 -a 1e-8 -r 1e-7 -i 3 -k 5";
 
-my $shift = $mu-$eps;
-
-my $res = `bubble -e 1 -p DOS.dat -f 0 1 0 $T $shift resigma.dat imsigma.dat`;
+my $res = `bubble $param -e 1 -p DOS.dat -f 0 1 0 $T $mu resigma.dat imsigma.dat`;
 $res *= 2; # spin!
 
 open(O, ">ekin.dat");

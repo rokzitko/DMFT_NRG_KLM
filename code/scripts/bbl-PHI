@@ -15,24 +15,17 @@ my $factor = pi**2;
 # pi^2 from the difference between A(w)=-1/Pi Im[..] and a(w)=-Im[..]
 
 # Chemical potential
-my $mu = `cat param.mu`;
-chomp($mu);
-
-# epsilon_d
-my $eps = `cat param.eps`;
-chomp($eps);
-
-my $shift = $mu-$eps;
+chomp(my $mu = `cat param.mu`);
 
 my $fn = "PHI.dat"; # transport function
-my $param = "-p $fn -c 20 -a 1e-8 -r 1e-7"; # numerical integration parameters
+my $param = "-p $fn -c 30 -a 1e-8 -r 1e-7 -i 3 -k 6"; # numerical integration parameters
 
 my $res;
-$res = `bubble $param 0 2 0 $T $shift resigma.dat imsigma.dat`;
+$res = `bubble $param 0 2 0 $T $mu resigma.dat imsigma.dat`;
 my $a0 = $factor*$res;
-$res = `bubble $param 0 2 1 $T $shift resigma.dat imsigma.dat`;
+$res = `bubble $param 0 2 1 $T $mu resigma.dat imsigma.dat`;
 my $a1 = $factor*$res;
-$res = `bubble $param 0 2 2 $T $shift resigma.dat imsigma.dat`;
+$res = `bubble $param 0 2 2 $T $mu resigma.dat imsigma.dat`;
 my $a2 = $factor*$res;
 
 my $A0 = $a0*$T;

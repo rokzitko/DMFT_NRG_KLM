@@ -1,0 +1,36 @@
+#!/usr/bin/env perl
+# Extract the overall energy shift encoded in ReDelta.dat; it is extracted as the difference
+# between the y-coordinate of first and last line in ReDelta.dat
+# Rok Zitko, Aug 2026
+
+use strict;
+use warnings;
+
+my $file = "ReDelta.dat";
+-s $file or die;
+
+open my $fh, '<', $file or die "$file: $!";
+my ($first, $last);
+while (<$fh>) {
+    $first //= $_;
+    $last = $_;
+}
+close $fh;
+chomp($first, $last) if defined $first;
+
+print "[$first]\n";
+print "[$last]\n";
+
+my ($x0, $y0) = split(' ', $first);
+my ($x1, $y1) = split(' ', $last);
+
+my $xavg = ($x0+$x1)/2.0;
+my $yavg = ($y0+$y1)/2.0;
+
+(abs($xavg) < 1e-8) or die; # symmetry test
+
+print "ReDelta shift=$yavg\n";
+
+open(O, ">param.shift") or die;
+print O "$yavg\n";
+close(O);
