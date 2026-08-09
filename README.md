@@ -629,17 +629,17 @@ boundaries, or the boundary term in the general sum rule must be retained.
 
 ## Literature
 
-     - Georges et al., DMFT review, Rev. Mod. Phys. 68, 13 (1996)
-(https://doi.org/10.1103/RevModPhys.68.13).
-     - Bulla, Costi, Pruschke, NRG review, Rev. Mod. Phys. 80, 395 (2008)
-(https://doi.org/10.1103/RevModPhys.80.395).
-     - Kugler, improved self-energy estimator, Phys. Rev. B 105, 245132 (2022)
-(https://doi.org/10.1103/PhysRevB.105.245132).
-     - Žitko and Pruschke, discretization artifacts, Phys. Rev. B 79, 085106 (2009)
-(https://doi.org/10.1103/PhysRevB.79.085106).
-     - Weichselbaum and von Delft, FDM sum-rule-conserving spectra, Phys. Rev. Lett. 99,
-076402 (2007) (https://doi.org/10.1103/PhysRevLett.99.076402).
-     - Lee and Weichselbaum, adaptive broadening, Phys. Rev. B 94, 235127 (2016)
-(https://doi.org/10.1103/PhysRevB.94.235127).
-     - Arsenault and Tremblay, Bethe transport functions, Phys. Rev. B 88, 205109 (2013)
-(https://doi.org/10.1103/PhysRevB.88.205109).
+- Georges et al., DMFT review, Rev. Mod. Phys. 68, 13 (1996)
+ (https://doi.org/10.1103/RevModPhys.68.13).
+- Bulla, Costi, Pruschke, NRG review, Rev. Mod. Phys. 80, 395 (2008)
+ (https://doi.org/10.1103/RevModPhys.80.395).
+- Kugler, improved self-energy estimator, Phys. Rev. B 105, 245132 (2022)
+ (https://doi.org/10.1103/PhysRevB.105.245132).
+- Žitko and Pruschke, discretization artifacts, Phys. Rev. B 79, 085106 (2009)
+ (https://doi.org/10.1103/PhysRevB.79.085106).
+- Weichselbaum and von Delft, FDM sum-rule-conserving spectra, Phys. Rev. Lett. 99,
+ 076402 (2007) (https://doi.org/10.1103/PhysRevLett.99.076402).
+- Lee and Weichselbaum, adaptive broadening, Phys. Rev. B 94, 235127 (2016)
+ (https://doi.org/10.1103/PhysRevB.94.235127).
+- Arsenault and Tremblay, Bethe transport functions, Phys. Rev. B 88, 205109 (2013)
+ (https://doi.org/10.1103/PhysRevB.88.205109).
