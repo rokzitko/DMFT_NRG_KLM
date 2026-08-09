@@ -9,4 +9,19 @@ use warnings;
 
 chomp(my $mu = `cat param.mu`);
 
-system("hilb -v -d DOS.dat -x $mu res/resigma.dat res/imsigma.dat res/reaw.dat res/imaw.dat") == 0 or die "hilb failed: $?";
+# Clipping of Im part of GF; this can happen due to numerical integration for narrow regions of small ImSigma
+chomp(my $imclip = `getparam clipG param.loop`);
+if ($imclip eq "") {
+  chomp($imclip = `getparam clip param.loop`); # fall back
+}
+$imclip ne "" or die;
+$imclip > 0.0 or die;
+
+print("bandDOS mu=$mu imclip=$imclip\n");
+
+my $fntmp = "imaw.dat.TMP"; # before clipping
+
+system("hilb -v -d DOS.dat -x $mu res/resigma.dat res/imsigma.dat res/reaw.dat $fntmp") == 0 or die "hilb failed: $?";
+
+system("clipy b $imclip $fntmp >res/imaw.dat");
+unlink($fntmp);

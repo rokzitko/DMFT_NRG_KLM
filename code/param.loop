@@ -82,6 +82,7 @@ T=0.01
 
 broaden_max=40
 broaden_ratio=1.01
+# Note: choose broaden_min << T
 broaden_min=1e-6
 broaden_alpha=0.3
 broaden_gamma=0.2

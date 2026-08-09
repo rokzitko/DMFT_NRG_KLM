@@ -33,10 +33,13 @@ system("mkdir -p res") == 0 or die;
 # Clean up first: note, we explicitly list the files to be deleted!
 system("rm -f res/*") == 0 or die;
 
-# Store a copy of Hybridisation function used in the calculation in res/. The idea is that all files in res/ are consistent as regards
+# Store a copy of Hybridisation function *used* in the calculation in res/. The idea is that all files in res/ are consistent as regards
 # the frequency grid, e.g., after running average and realparts, to have a consistent input for sigmatrick script.
 system("cp -v ReDelta.dat res/ReDelta.dat") == 0 or die;
 system("cp -v ImDelta.dat res/ImDelta.dat") == 0 or die;
+# We also store param.mu that was *used* in the impurity solver (param.mu will be shifted by occupancy control!).
+system("cp -v param.mu    res/param.mu") == 0 or die;
+# Note that at the end of dmft_done, res/ contains *used* files, while ./ contains files for *next* iteration.
 
 # Average spectral functions
 msg("average");
