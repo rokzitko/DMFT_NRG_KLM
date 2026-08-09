@@ -24,8 +24,15 @@ sub readcol {
 
 my $pi = pi;
 
-chomp(my $clip = `getparam clip param.loop`);
-print "dmftDOS - clip=$clip\n";
+# Clipping of Im part of Delta; NRG requires the hybridization funciton Gamma=-Im(Delta) to be strictly positive!
+chomp(my $imclip = `getparam clipDelta param.loop`);
+if ($imclip eq "") {
+  chomp($imclip = `getparam clip param.loop`); # fall back
+}
+$imclip ne "" or die;
+$imclip > 0.0 or die;
+
+print "dmftDOS - imclip=$imclip\n";
 
 # Chemical potential
 my $mu = `cat param.mu`;
@@ -54,6 +61,8 @@ for (my $i = 0; $i < $len; $i++) {
     my $G = $reG[$i] + i * $imG[$i];
     my $sigma = $reS[$i] + i * $imS[$i];
     my $GF = -$pi * $G; # difference between DOS and Im GF !
+    Im($sigma) < 0.0 or die; # contract
+    Im($GF) < 0.0 or die; # contract
 
     # G_0^-1 = G^-1_local + Sigma
     my $g01 = 1/$GF + $sigma;
@@ -65,9 +74,10 @@ for (my $i = 0; $i < $len; $i++) {
     my $im = Im($Delta); # stored in ImDelta.dat
 
     # Perform ImDelta.dat clipping to ensure hybridization function (Gamma=-ImDelta) is positive (!)
-    if ($im > $clip) {
-        $im = -$clip;
+    if ($im > -$imclip) {
+        $im = -$imclip;
     }
+    $im < 0.0 or die; # contract
 
     print R "$o $re\n";
     print I "$o $im\n";

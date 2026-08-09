@@ -16,10 +16,8 @@ if (!-d "res") {
 -s "param.mu" or die "Chemical potential param.mu not found.";
 -s "param.loop" or die "Parameter file param.loop not found.";
 
-if (-s "ReDeltaFirst.dat" && -s "ImDeltaFirst.dat") {
+if (-s "ReDelta.dat" && -s "ImDelta.dat") {
     # Preexisting initial approximation for hybridization function Delta(z)
-    system("cp ReDeltaFirst.dat ReDelta.dat") == 0 or die;
-    system("cp ImDeltaFirst.dat ImDelta.dat") == 0 or die;
     if (!-s "mesh.dat") {
         # Ensure mesh.dat is consistent with the mesh used in *DeltaFirst.dat
         system("cp ReDelta.dat mesh.dat") == 0 or die;

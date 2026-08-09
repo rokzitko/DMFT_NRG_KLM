@@ -8,10 +8,19 @@ use strict;
 use warnings;
 use Math::Complex;
 
-my $imclip = `getparam clip param.loop` # "infinitesimal" clipping value for Im(Sigma), to prevent causality violations
+# $imclip is the "infinitesimal" clipping value for Im(Sigma), to prevent causality violations
+chomp(my $imclip = `getparam clipSigma param.loop`);
+if ($imclip eq "") {
+    chomp($imclip = `getparam clip param.loop`); # fall back
+}
+$imclip ne "" or die;
+$imclip > 0.0 or die;
+
+print "sigmatrick - imclip=$imclip\n";
 
 my $prefix = (-d "res" ? "res" : ".");
 
+-s "mesh.dat" or die;
 my @omega = readcol("mesh.dat", 1);
 
 my @imG = readcol("$prefix/c-imG.dat", 2);
@@ -73,6 +82,7 @@ for (my $i = 0; $i < $len; $i++) {
 
   my $gf = 1.0/($o + $mu - $delta - $sigma);
   my $aw = -1.0/pi * Im($gf);
+  $aw > 0.0 or die; # contract
 
   print SELF "$o $aw\n";
 
@@ -82,6 +92,7 @@ for (my $i = 0; $i < $len; $i++) {
   if ($im > -$imclip) {
       $im = -$imclip;
   }
+  $im < 0.0 or die; # contract
 
   print IM "$o $im\n";
   print RE "$o $re\n";

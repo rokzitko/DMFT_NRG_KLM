@@ -16,6 +16,7 @@ Nz=4
 
 # Clipping value for ImSigma and ImDelta
 clip=1e-5
+clipSigma=1e-8
 
 # Conduction band occupancy
 goal=0.8

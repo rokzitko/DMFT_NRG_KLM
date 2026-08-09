@@ -10,9 +10,7 @@ my $local = 1; #0=submit a Slurm job, 1=run locally
 
 -e "DOS.dat" or die "Tabulated density of states DOS.dat must exist.";
 
-if (!(-e "ReDelta.dat" && -e "ImDelta.dat")) {
-    system("scripts/dmft_init") == 0 or die "dmft_init failed: $?";
-}
+system("scripts/dmft_init") == 0 or die "dmft_init failed: $?";
 
 system("scaley -1 ImDelta.dat >Delta.dat") == 0 or die;
 -s "Delta.dat" or error("Hybridisation function not found, stopped");

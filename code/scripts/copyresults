@@ -50,7 +50,6 @@ if (-s "imaw.dat") {
 system("cp -v res/imaw.dat imaw.dat") == 0 or die;
 system("cp -v res/reaw.dat reaw.dat") == 0 or die;
 system("cp -v res/c-self.dat self.dat") == 0 or die;
-system("cp -v Delta.dat DeltaLast.dat") == 0 or die;
 
 # NRG iteration logs, etc.
 cp1("custom");

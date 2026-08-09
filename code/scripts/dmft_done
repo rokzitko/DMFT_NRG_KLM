@@ -137,10 +137,14 @@ system("mixy $f1 ImDelta.dat.NEW-common $f2 ImDelta.dat.OLD-common >ImDelta.dat.
 -s "ImDelta.dat.TEMP" or die "ImDelta Mixing failed.";
 
 # Clipping of the hybridization function
-chomp(my $clip = `getparam clip param.loop`);
-print "clip=$clip\n";
-$clip > 0 or die "clip must be non-zero.";
-system("clipy t -$clip ImDelta.dat.TEMP >ImDelta.dat") == 0 or die;
+chomp(my $imclip = `getparam clipDelta param.loop`);
+if ($imclip eq "") {
+    chomp($imclip = `getparam clip param.loop`); # fall back
+}
+$imclip ne "" or die;
+$imclip > 0.0 or die;
+print "imclip=$imclip\n";
+system("clipy t -$imclip ImDelta.dat.TEMP >ImDelta.dat") == 0 or die;
 -s "ImDelta.dat" or die "Clipping failed.";
 system("cp ReDelta.dat.TEMP ReDelta.dat"); # just copy, no other processing
 -s "ReDelta.dat" or die "Copying failed.";
