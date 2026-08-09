@@ -78,14 +78,6 @@ for (my $i = 0; $i < $len; $i++) {
   my $sigma = $SigmaH + $I - $F/$G*$F;
 #  my $sigma = $F/$G;
 
-  my $delta = i * $imdelta[$i] + $redelta[$i];
-
-  my $gf = 1.0/($o + $mu - $delta - $sigma);
-  my $aw = -1.0/pi * Im($gf);
-  $aw > 0.0 or die; # contract
-
-  print SELF "$o $aw\n";
-
   my $re = Re($sigma);
   my $im = Im($sigma);
 
@@ -96,6 +88,16 @@ for (my $i = 0; $i < $len; $i++) {
 
   print IM "$o $im\n";
   print RE "$o $re\n";
+
+  my $sigma_clipped = $re + i * $im;
+  my $delta = $redelta[$i] + i * $imdelta[$i];
+
+  my $gf = 1.0/($o + $mu - $delta - $sigma_clipped);
+  my $aw = -1.0/pi * Im($gf);
+  $aw > 0.0 or die; # contract
+
+  print SELF "$o $aw\n";
+
 }
 
 # Read a column from a file
