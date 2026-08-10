@@ -1,11 +1,19 @@
 #!/bin/bash
-# Clean up after the calculation
+# Clean up after the calculation; this removes all output. If command line argument "keep" is used,
+# ImDelta.dat and ReDelta.dat will be retained to enable restarting the calculation (param.mu is never deleted)
 # Rok Zitko, Aug 2026
-rm -f ham ham.* mat mat.res val vec vec.* xi1.dat zeta1.dat theta1.dat
-rm -f data
-rm -f param.param param.extra param.dmft param
+
+scripts/cleanup_temp
+
+if [[ "$1" != "keep" ]]; then
+  rm -f ImDelta.dat ReDelta.dat
+fi
+
+rm -fr res/ dmft/
+rm -f Delta.dat imaw.dat reaw.dat imaw.dat.prev imsigma.dat resigma.dat self.dat
+rm -f FSOL.dat FSOLNEG.dat
+rm -f custom custom.avg customfdm customfdm.avg
+rm -f occupancy.log occupancy.control.log
+rm -f DIFFS_C
 rm -f mesh.dat
 rm -f ITER
-rm -f logNEW* logUNION*
-rm -f ReDelta*NEW* ReDelta*OLD* ReDelta*TEMP
-rm -f ImDelta*NEW* ImDelta*OLD* ImDelta*TEMP

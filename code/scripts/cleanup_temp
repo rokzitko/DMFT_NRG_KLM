@@ -1,0 +1,11 @@
+#!/bin/bash
+# Clean up after the calculation; this one deletes various temporary files, but keeps output files from the calculation.
+# This script does not delete any files that are required for continuing the DMFT iteration.
+# Rok Zitko, Aug 2026
+rm -f ham ham.* mat mat.res val vec vec.* xi1.dat zeta1.dat theta1.dat
+rm -f data
+rm -f param.param param.extra param.dmft param
+rm -f logNEW* logUNION*
+rm -f ReDelta*NEW* ReDelta*OLD* ReDelta*TEMP
+rm -f ImDelta*NEW* ImDelta*OLD* ImDelta*TEMP
+delete_NRG_output
