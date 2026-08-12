@@ -17,3 +17,7 @@ rm -f occupancy.log occupancy.control.log
 rm -f DIFFS_C
 rm -f mesh.dat
 rm -f ITER
+rm -f LL.dat ZT.dat condMIR.dat rhoMIR.dat cond.opt-PHI.dat ekin.dat kappa.dat thermopowerS.dat
+rm -f dos.dat
+rm -f CONVERGED STOP
+
