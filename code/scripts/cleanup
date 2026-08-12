@@ -10,14 +10,22 @@ if [[ "$1" != "keep" ]]; then
 fi
 
 rm -fr res/ dmft/
-rm -f Delta.dat imaw.dat reaw.dat imaw.dat.prev imsigma.dat resigma.dat self.dat
-rm -f FSOL.dat FSOLNEG.dat
-rm -f custom custom.avg customfdm customfdm.avg
-rm -f occupancy.log occupancy.control.log
-rm -f DIFFS_C
-rm -f mesh.dat
-rm -f ITER
-rm -f LL.dat ZT.dat condMIR.dat rhoMIR.dat cond.opt-PHI.dat ekin.dat kappa.dat thermopowerS.dat
-rm -f dos.dat
-rm -f CONVERGED STOP
 
+# Dynamical quantities
+rm -f Delta.dat imaw.dat reaw.dat imaw.dat.prev imsigma.dat resigma.dat self.dat
+# ReDelta shift
+rm -f param.shift
+# Expectation values
+rm -f custom custom.avg customfdm customfdm.avg
+# Occupancy control
+rm -f occupancy.log occupancy.control.log
+# Transport
+rm -f LL.dat ZT.dat condMIR.dat rhoMIR.dat cond.opt-PHI.dat ekin.dat kappa.dat thermopowerS.dat # transport
+# Band discretization
+rm -f FSOL.dat FSOLNEG.dat
+# Frequency mesh
+rm -f mesh.dat
+# Alt lattice spectral funciton
+rm -f dos.dat
+# Flag files, loop control
+rm -f CONVERGED STOP ITER DIFFS_C

@@ -2,10 +2,16 @@
 # Clean up after the calculation; this one deletes various temporary files, but keeps output files from the calculation.
 # This script does not delete any files that are required for continuing the DMFT iteration.
 # Rok Zitko, Aug 2026
+
+# Template initialization
 rm -f ham ham.* mat mat.res val vec vec.* xi1.dat zeta1.dat theta1.dat
 rm -f data
 rm -f param.param param.extra param.dmft param
+
+# Mesh refinement
 rm -f logNEW* logUNION*
 rm -f ReDelta*NEW* ReDelta*OLD* ReDelta*TEMP
 rm -f ImDelta*NEW* ImDelta*OLD* ImDelta*TEMP
+
+# Temporary directories
 delete_NRG_output
