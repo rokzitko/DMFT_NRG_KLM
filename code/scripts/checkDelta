@@ -1,0 +1,40 @@
+#!/usr/bin/env perl
+# Check if hybridization function falls within the energy window [-bandrescale:bandrescale]
+# Rok Ziko, 2026
+
+use strict;
+use warnings;
+
+-e "Delta.dat" or die;
+
+chomp(my $bandrescale = `getparam bandrescale param.loop`);
+$bandrescale ne "" && $bandrescale > 0 or die;
+
+chomp(my $clipDelta = `getparam clipDelta param.loop`);
+$clipDelta ne "" && $clipDelta > 0 or die;
+
+chomp(my $broaden_max = `getparam broaden_max param.loop`);
+$broaden_max ne "" && $broaden_max > 0 or die;
+
+chomp(my $total = `integrate Delta.dat`);
+$total ne "" && $total > 0 or die;
+chomp(my $ab = `integrateab Delta.dat -$bandrescale $bandrescale`);
+$ab ne "" && $ab > 0 or die;
+
+my $diff = $total-$ab;
+my $corrected = $diff - 2*($broaden_max-$bandrescale)*$clipDelta; # subtract what would arise from clipping to a non-zero value
+
+my $ratio = $ab/$total;
+
+my $R = abs($corrected/$total);
+
+print "checkDelta: total=$total ab=$ab ratio=$ratio\ndiff=$diff corrected=$corrected\nR=$R\n";
+
+my $limit = 1e-3;
+
+if ($R > $limit) {
+  die "DANGER: $R of total weight in Delta.dat is located outside the NRG discretization window.\n";
+} else {
+  print "OK!\n";
+}
+

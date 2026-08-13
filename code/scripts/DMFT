@@ -16,6 +16,7 @@ system("scaley -1 ImDelta.dat >Delta.dat") == 0 or die;
 -s "Delta.dat" or error("Hybridisation function not found, stopped");
 system("scripts/ReDelta_shift") == 0 or die;
 -s "param.shift" or die;
+system("scripts/checkDelta") == 0 or die;
 
 my $Nz = `getparam Nz param.loop`;
 chomp($Nz);
