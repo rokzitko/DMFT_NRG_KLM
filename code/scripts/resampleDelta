@@ -1,0 +1,29 @@
+#!/usr/bin/env perl
+# Remesh input ReDelta.dat and ImDelta.dat
+# Rok Zitko, Aug 2026
+
+use strict;
+use warnings;
+
+-s "ReDelta.dat" && -s "ImDelta.dat" or die;
+
+system("scripts/init_mesh >mesh-new.dat") == 0 or die "init_mesh failed: $?";
+system("cp ReDelta.dat mesh-old.dat") == 0 or die;
+system("mesh_union mesh-new.dat mesh-old.dat >mesh.dat 2>log.resample") ==  0 or die;
+
+system("wc -l mesh*.dat");
+
+# Resampling
+system("mv ReDelta.dat ReDelta.dat.INIT") == 0 or die;
+system("mv ImDelta.dat ImDelta.dat.INIT") == 0 or die;
+system("resample -e ReDelta.dat.INIT mesh.dat ReDelta.dat") == 0 or die;
+system("resample -e ImDelta.dat.INIT mesh.dat ImDelta.dat") == 0 or die;
+
+unlink("ReDelta.dat.INIT");
+unlink("ImDelta.dat.INIT");
+unlink("mesh-new.dat");
+unlink("mesh-old.dat");
+
+-s "ReDelta.dat" && -s "ImDelta.dat" or die "resampleDelta failed";
+
+print "resampleDelta done.\n";

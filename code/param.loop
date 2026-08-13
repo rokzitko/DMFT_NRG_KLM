@@ -66,6 +66,7 @@ keep=10000
 
 discretization=Z
 band=asymode
+# Note that Delta.dat needs to be fully contained in [-bandrescale:bandrescale] interval. Checked by scripts/checkDelta.
 bandrescale=10
 dos=Delta.dat
 

@@ -16,13 +16,19 @@ if (!-d "res") {
 -s "param.mu" or die "Chemical potential param.mu not found.";
 -s "param.loop" or die "Parameter file param.loop not found.";
 
+my $resample = "true";
+
 if (-s "ReDelta.dat" && -s "ImDelta.dat") {
     # Preexisting initial approximation for hybridization function Delta(z)
-    if (!-s "mesh.dat") {
-        # Ensure mesh.dat is consistent with the mesh used in *DeltaFirst.dat
-        system("cp ReDelta.dat mesh.dat") == 0 or die;
+    if ($resample) {
+        system("scripts/resampleDelta") == 0 or die;
+    } else {
+        if (!-s "mesh.dat") {
+            # Ensure mesh.dat is consistent with the mesh used in *DeltaFirst.dat
+            system("cp ReDelta.dat mesh.dat") == 0 or die;
+        }
     }
-} else {
+  } else {
     if (!-s "mesh.dat") {
       # If the mesh is not predefined, generate it using settings from param.loop
       system("scripts/init_mesh >mesh.dat") == 0 or die "init_mesh failed: $?";
