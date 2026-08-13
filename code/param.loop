@@ -42,6 +42,9 @@ opt_mindx=1e-10
 # - Lowest value of y (|ImDelta|) for allowing insertion of extra points
 opt_ymin=1e-5
 
+# Track iteration by keeping snapshots in dmft/
+track=true
+
 [param]
 xmax=20
 adapt=false
@@ -89,7 +92,7 @@ T=0.01
 broaden_max=40
 broaden_ratio=1.01
 # Note: choose broaden_min << T
-broaden_min=1e-6
+broaden_min=1e-7
 broaden_alpha=0.3
 broaden_gamma=0.2
 

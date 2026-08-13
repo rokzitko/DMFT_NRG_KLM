@@ -11,6 +11,9 @@ my $iter = `getiter`;
 # Note: For Broyden mixing (if implemented), $track must be 1.
 my $track = 1; # 0=do not store copies in dmft/, 1=track DMFT iteration by storing copies of all results in dmft/.
 
+chomp(my $tr = `getparam track param.loop`);
+$track = ($tr eq "true")  ? 1 : 0;
+
 sub cp {
     my $fn = shift;
     if ($track) { copy("res/$fn", "dmft/$iter-$fn")
