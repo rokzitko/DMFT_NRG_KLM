@@ -36,7 +36,7 @@ maxiter=100
 
 # Mesh optimization parameters
 # - Precision goal for linearly interpolated values
-opt_delta=1e-4
+opt_delta=1e-3
 # - Smallest interpoint distance in the mesh
 opt_mindx=1e-10
 # - Lowest value of y (|ImDelta|) for allowing insertion of extra points
@@ -46,7 +46,7 @@ opt_ymin=1e-5
 track=false
 
 [param]
-xmax=30
+xmax=25
 adapt=false
 prec=1000
 polarized=false
