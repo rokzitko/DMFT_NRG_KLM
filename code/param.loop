@@ -43,7 +43,7 @@ opt_mindx=1e-10
 opt_ymin=1e-5
 
 # Track iteration by keeping snapshots in dmft/
-track=true
+track=false
 
 [param]
 xmax=30
