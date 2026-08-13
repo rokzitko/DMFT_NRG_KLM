@@ -1,0 +1,12 @@
+#!/usr/bin/env perl
+
+open(O, "|sortnum>rho.dat");
+
+while (<*>) {
+  -d or next;
+  $dir = $_;
+  /(.*)=(.*)/ or next;
+  $x = $2;
+  chomp($y = `cat $dir/rhoMIR.dat`);
+  print O "$x $y\n";
+}
