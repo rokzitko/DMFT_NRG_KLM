@@ -85,6 +85,7 @@ bins=500
 
 T=0.01
 
+# There are benefits in taking broaden_max large. It must be (much) larger than bandrescale.
 broaden_max=40
 broaden_ratio=1.01
 # Note: choose broaden_min << T
