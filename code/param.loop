@@ -14,9 +14,11 @@ B=0
 # Number of discretization grids for NRG
 Nz=4
 
-# Clipping value for ImSigma and ImDelta
+# Clipping values for ImDelta, ImSigma, ImG (+default fallback)
 clip=1e-5
-clipSigma=1e-8
+clipDelta=1e-6
+clipSigma=1e-12
+clipG=1e-14
 
 # Conduction band occupancy
 goal=0.8
@@ -33,9 +35,12 @@ miniter=10
 maxiter=100
 
 # Mesh optimization parameters
-opt_delta=0.03
-opt_mindx=1e-4
-opt_ymin=1e-3
+# - Precision goal for linearly interpolated values
+opt_delta=1e-4
+# - Smallest interpoint distance in the mesh
+opt_mindx=1e-10
+# - Lowest value of y (|ImDelta|) for allowing insertion of extra points
+opt_ymin=1e-5
 
 [param]
 xmax=20
