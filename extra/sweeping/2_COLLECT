@@ -1,12 +1,20 @@
 #!/usr/bin/env perl
 
+use strict;
+use warnings;
+
+my $fnin = "rhoMIR.dat";
+my $fnout = "rho.dat";
+
 open(O, "|sortnum>rho.dat");
 
 while (<*>) {
-  -d or next;
-  $dir = $_;
-  /(.*)=(.*)/ or next;
-  $x = $2;
-  chomp($y = `cat $dir/rhoMIR.dat`);
-  print O "$x $y\n";
+    -d or next;
+    my $dir = $_;
+    /(.*)=(.*)/ or next;
+    my $x = $2;
+    my $fn = "$dir/$fnin";
+    -s $fn or next;
+    chomp(my $y = `cat $fn`);
+    print O "$x $y\n";
 }
