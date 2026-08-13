@@ -33,19 +33,7 @@ my $abs = abs($diff);
 if ($abs < $convergencelimit && $iter > $miniter) {
     print "Convergence achieved! $abs < $convergencelimit\n";
     system "touch CONVERGED"; # create a flag file
-    # Run postprocessing scripts here
-    if (-x "scripts/bbl") {
-        system("scripts/bbl") == 0 or die;
-    }
-    if (-x "scripts/dos") {
-        system("scripts/dos") == 0 or die;
-    }
-    if (-x "scripts/ekin") {
-        system("scripts/ekin") == 0 or die;
-    }
-    if (-x "scripts/cond.opt-PHI") {
-        system("scripts/cond.opt-PHI") == 0 or die;
-    }
+    system("scripts/post") == 0 or warn("Running scripts/post failed");
 } else {
     print "Not converged yet. $abs > $convergencelimit\n";
     if ($iter > $maxiter) {
