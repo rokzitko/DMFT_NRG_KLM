@@ -14,6 +14,7 @@ my $param = "-p $fn -c 30 -a 1e-8 -r 1e-7 -i 3 -k 6";
 
 # Chemical potential
 chomp(my $mu = `cat param.mu`);
+($? == 0) or die;
 
 # Compute dos.dat to be compared with imaw.dat
-system "bubble -d $param 0 1 0 $T $mu resigma.dat imsigma.dat";
+system("bubble -d $param 0 1 0 $T $mu resigma.dat imsigma.dat") == 0 or die;

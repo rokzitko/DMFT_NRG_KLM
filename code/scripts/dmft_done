@@ -84,13 +84,22 @@ system("newiter") == 0 or die "newiter failed: $?";
 msg("copyresults");
 system("scripts/copyresults") == 0 or die "copyresults failed: $?";
 
-# Occupancy control
-msg("occupancy_control");
-system("scripts/occupancy_control >occupancy.control.log 2>&1") == 0 or die "occupacy_control failed: $?";
-
 # Compute differences (for self-consistency condition checks)
 msg("diffs");
 system("scripts/diffs") == 0 or die "diffs failed: $?";
+
+# We check for convergence at this point. This will generate CONVERGED flag file
+# if the convergence criterium is reached. Also, the postprocessing scripts will run at
+# this point. This is appropriate, since param.mu contains the chemical potential corresponding
+# to current resigma.dat and imsigma.dat result files. (The value is updated by occupancy control
+# just below.)
+system("scripts/checkconv") == 0 or die "checkconv failed: $?";
+
+## Start preparing input for the next iteration
+
+# Occupancy control
+msg("occupancy_control");
+system("scripts/occupancy_control >occupancy.control.log 2>&1") == 0 or die "occupacy_control failed: $?";
 
 # Compute hybridization function ImDelta.dat, ReDelta.dat
 msg("dmftDOS");
@@ -131,7 +140,7 @@ if ($mesh_refinement) {
 # Mixing of hybridization function
 chomp(my $alpha = `getparam alpha param.loop`);
 print "alpha=$alpha\n";
-$alpha > 0 or die "alpha is zero; 0<alpha<=1";
+(0.0 <= $alpha && $alpha <= 1.0) or die "alpha is zero; 0<=alpha<=1";
 my $f1 = $alpha;
 my $f2 = 1.0-$alpha;
 system("mixy $f1 ReDelta.dat.NEW-common $f2 ReDelta.dat.OLD-common >ReDelta.dat.TEMP") == 0 or die;
@@ -159,7 +168,6 @@ system("delete_NRG_output") == 0 or die;
 # RECURSION!
 # Note that if we stop at this point, the calculation can be continued by running DMFT, because the input (Delta.dat)
 # is already prepared (mixing, etc.).
-system("scripts/checkconv") == 0 or die "checkconv failed: $?";
 if (!-e "CONVERGED" && !-e "STOP") {
   system("scripts/DMFT") == 0 or die "DMFT failed: $?";
 }

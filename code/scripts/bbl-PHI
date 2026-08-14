@@ -22,10 +22,13 @@ my $param = "-p $fn -c 30 -a 1e-8 -r 1e-7 -i 3 -k 6"; # numerical integration pa
 
 my $res;
 $res = `bubble $param 0 2 0 $T $mu resigma.dat imsigma.dat`;
+($? == 0) or die;
 my $a0 = $factor*$res;
 $res = `bubble $param 0 2 1 $T $mu resigma.dat imsigma.dat`;
+($? == 0) or die;
 my $a1 = $factor*$res;
 $res = `bubble $param 0 2 2 $T $mu resigma.dat imsigma.dat`;
+($? == 0) or die;
 my $a2 = $factor*$res;
 
 my $A0 = $a0*$T;

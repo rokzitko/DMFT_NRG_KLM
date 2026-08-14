@@ -36,5 +36,5 @@ sub avg
        system "echo Failed to produce broadened spectrum $specfn -> $out. >>>ERROR";
        die "broaden failed\n";
     }
-    system "mv $specfn $out";
+    system("mv $specfn $out") == 0 or die;
 }

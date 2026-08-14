@@ -10,6 +10,6 @@ my $hybfn = "Delta.dat";
 system("nrgchain") == 0 or die "nrgchain failed: $?";
 -s "xi.dat" && -s "zeta.dat" && -s "theta.dat" or die "Wilson chain coefficients not found.";
 
-system "mv xi.dat xi1.dat";
-system "mv zeta.dat zeta1.dat";
-system "mv theta.dat theta1.dat";
+system("mv xi.dat xi1.dat") == 0 or die;
+system("mv zeta.dat zeta1.dat") == 0 or die;
+system("mv theta.dat theta1.dat") == 0 or die;

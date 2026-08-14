@@ -13,21 +13,21 @@ my $local = 1; #0=submit a Slurm job, 1=run locally
 system("scripts/dmft_init") == 0 or die "dmft_init failed: $?";
 
 system("scaley -1 ImDelta.dat >Delta.dat") == 0 or die;
--s "Delta.dat" or error("Hybridisation function not found, stopped");
+-s "Delta.dat" or die("Hybridisation function not found, stopped");
 system("scripts/ReDelta_shift") == 0 or die;
 -s "param.shift" or die;
 system("scripts/checkDelta") == 0 or die;
 
-my $Nz = `getparam Nz param.loop`;
-chomp($Nz);
+chomp(my $Nz = `getparam Nz param.loop`);
+$Nz >= 1 or die;
 
 # Chemical potential
 chomp(my $mu = `cat param.mu`);
 
 # Additional energy-level shift
-chomp(my $shift = `cat param.eps`); # Select param.eps or param.shift here!
+chomp(my $shift = `cat param.eps`);
 
-my $epsimp = $shift-$mu;
+my $epsimp = $shift-$mu; # impurity level for NRG calculation
 print "mu=$mu shift=$shift $epsimp=$epsimp\n";
 
 # Perform the discretization
@@ -44,12 +44,13 @@ for (my $i = 1; $i <= $Nz; $i++) {
   my $z = $i/$Nz;
   system("m4 -DEPS=$epsimp -DZZZ=$z param.loop >param") == 0 or die "m4 failed: $?";
   system("mkdir -p $i") == 0 or die "mkdir failed: $?";
+  unlink("$i/DONE"); # in case of reusing instance directory, ensure DONE flag file is cleared first
 
   if ($mma) {
       chdir $i or die;
-      system "cp ../Delta.dat Delta.dat";
-      system "cp ../param param";
-      system("nrginit")== 0 or die "nrginit failed: $?";
+      system("cp ../Delta.dat Delta.dat") == 0 or die;
+      system("cp ../param param") == 0 or die;
+      system("nrginit") == 0 or die "nrginit failed: $?";
   } else {
       system("scripts/instantiate $i") == 0 or die "instantiate failed: $?";
       chdir $i or die;

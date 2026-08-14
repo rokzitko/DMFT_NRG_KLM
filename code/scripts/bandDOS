@@ -23,5 +23,5 @@ my $fntmp = "imaw.dat.TMP"; # before clipping
 
 system("hilb -v -d DOS.dat -x $mu res/resigma.dat res/imsigma.dat res/reaw.dat $fntmp") == 0 or die "hilb failed: $?";
 
-system("clipy b $imclip $fntmp >res/imaw.dat");
+system("clipy b $imclip $fntmp >res/imaw.dat") == 0 or die;
 unlink($fntmp);

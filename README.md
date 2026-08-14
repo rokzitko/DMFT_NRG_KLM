@@ -60,9 +60,6 @@ code-normalized quantities.  They are not conductivities in SI units.
 - `Omega` is the external bosonic frequency used for optical conductivity.
   It is distinct from the internal integration frequency `omega`.
 - `epsilon` denotes a bare band energy relative to the center of `DOS.dat`.
-- `epsilon_d`, stored in `param.eps`, is the common on-site shift of the
-  conduction band.  The lattice and transport routines therefore pass
-  `mu - epsilon_d` to `hilb` and `bubble`.
 
 The NRG parameter `bandrescale` is an internal solver rescaling and is not the
 physical bandwidth.  With `data_has_rescaled_energies=false`, output energies
@@ -85,7 +82,7 @@ by the impurity problem is
 
 ```math
 K = \sum_{k\sigma}
-  (\epsilon_d+\epsilon_k-\mu)c^\dagger_{k\sigma}c_{k\sigma}
+  (\epsilon_k-\mu)c^\dagger_{k\sigma}c_{k\sigma}
   + U\sum_i n_{i\uparrow}n_{i\downarrow}
   + J_K\sum_i \mathbf S_i\mathbin{\cdot}\mathbf s_i
   + B\sum_i(S_i^z+s_i^z).
@@ -108,7 +105,7 @@ Important details are:
 - The field term has the sign `+B(S^z+s^z)`, rather than the frequently used
   `-B(S^z+s^z)` convention.
 - `Himp` in the expectation-value output is grand canonical because it
-  contains `(epsilon_d - mu)n`.
+  contains `-mu n`.
 - `Hpot` contains only `U n_up n_down + J_K S.s`; it excludes the level,
   chemical-potential, and field terms.
 
@@ -144,7 +141,7 @@ The band-energy-resolved lattice Green function is
 ```math
 G^R_\epsilon(\omega)=
 \frac{1}{
-  \omega+\mu-\epsilon_d-\epsilon-\Sigma^R(\omega)
+  \omega+\mu-\epsilon-\Sigma^R(\omega)
 }.
 ```
 
@@ -171,7 +168,7 @@ The reconstructed impurity propagator is
 ```math
 G^R_{\mathrm{imp}}(\omega)=
 \frac{1}{
-  \omega+\mu-\epsilon_d-\Delta^R(\omega)-\Sigma^R(\omega)
+  \omega+\mu-\Delta^R(\omega)-\Sigma^R(\omega)
 }.
 ```
 
@@ -225,16 +222,8 @@ using the tabulated `DOS.dat`, then constructs
 ```math
 \mathcal{G}_0^{-1}=(G^R_{\mathrm{loc}})^{-1}+\Sigma^R,
 \qquad
-\Delta^R=\omega+\mu-\epsilon_d-\mathcal{G}_0^{-1}.
+\Delta^R=\omega+\mu-\mathcal{G}_0^{-1}.
 ```
-
-The last equation is the intended convention.  The current
-`code/scripts/dmftDOS` implementation omits `-epsilon_d` in this final step.
-For nonzero `param.eps`, the freshly written `ReDelta.dat` is consequently
-shifted by `+epsilon_d`.  `ImDelta.dat`, and hence the bath spectrum used by
-NRG, is unchanged; after mixing, `ReDelta.dat` is regenerated from
-`ImDelta.dat` by Kramers-Kronig transformation.  The discrepancy is absent for
-the default `param.eps = 0`.
 
 ## Numerical file conventions
 
@@ -433,8 +422,8 @@ The script then explicitly multiplies it by two:
 ```
 
 `E_kin` is the conduction-band kinetic energy per DOS-normalized lattice site,
-summed over the two spins.  It excludes the on-site `epsilon_d n` term, the
-grand-canonical `-mu n` term, the Hubbard interaction, and the Kondo exchange.
+summed over the two spins.  It excludes the grand-canonical `-mu n` term,
+the Hubbard interaction, and the Kondo exchange.
 
 ## Optical f-sum rule
 

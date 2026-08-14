@@ -1,5 +1,4 @@
 How to initialize calculation using results from a previous run
 
-- Copy Delta.dat from previous run to DeltaFirst.dat (note the name change!) in the current instance.
-- Copy param.mu from previous run to the current instance.
+- Copy ReDelta.dat/ImDelta.dat/param.mu from previous run
 - Start DMFT script

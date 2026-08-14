@@ -1,6 +1,8 @@
 #!/usr/bin/env perl
 # Extract the overall energy shift encoded in ReDelta.dat; it is extracted as the difference
-# between the y-coordinate of first and last line in ReDelta.dat
+# between the y-coordinate of first and last line in ReDelta.dat.
+# This is generally used only as a diagnostic. param.eps contains the DOS first momentum (asymptotic
+# ReDelta shift already embedded in DOS.dat).
 # Rok Zitko, Aug 2026
 
 use strict;
