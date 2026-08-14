@@ -31,6 +31,8 @@ alpha=0.5
 # Accuracy goal for the spectral function (integrated
 # difference between two iterations)
 conveps=1e-8
+# Number of consecutive iterations required for convergence
+convwindow=1
 miniter=10
 maxiter=100
 

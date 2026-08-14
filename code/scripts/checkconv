@@ -7,11 +7,14 @@ use strict;
 use warnings;
 
 chomp(my $convergencelimit = `getparam conveps param.loop`);
+chomp(my $convwindow = `getparam convwindow param.loop`);
 chomp(my $miniter = `getparam miniter param.loop`);
 chomp(my $maxiter = `getparam maxiter param.loop`);
 
+die "Invalid convwindow=$convwindow. Stopped" if $convwindow < 1;
+
 my $iter = `getiter`;
-print "checkconv, iter=$iter miniter=$miniter maxiter=$maxiter\n";
+print "checkconv, iter=$iter miniter=$miniter maxiter=$maxiter convwindow=$convwindow\n";
 
 exit 0 if $iter <= 1;
 
@@ -22,14 +25,23 @@ open(F, "<$fn") or die "Can't open $fn: $!. Stopped";
 my @l = <F>;
 close F;
 
+exit 0 if @l < $convwindow;
+
 my $last = $l[-1];
 chomp($last);
-my ($iter2, $diff) = split(' ', $last, 2);
+my ($iter2, $diff2) = split(' ', $last, 2);
 if ($iter != $iter2) {
     warn "Iteration number in ITER and $fn do not agree.\n";
 }
 
-my $abs = abs($diff);
+my $abs = 0;
+foreach my $line (@l[-$convwindow .. -1]) {
+    chomp($line);
+    my ($iter3, $diff3) = split(' ', $line, 2);
+    my $a = abs($diff3);
+    $abs = $a if $a > $abs;
+}
+
 if ($abs < $convergencelimit && $iter > $miniter) {
     print "Convergence achieved! $abs < $convergencelimit\n";
     system "touch CONVERGED"; # create a flag file
