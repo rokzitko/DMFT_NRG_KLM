@@ -63,7 +63,7 @@ Lambda=2.0
 Nmax=54
 #Tmin=1e-7
 keepmin=500
-keepenergy=8
+keepenergy=10
 keep=10000
 
 discretization=Z
