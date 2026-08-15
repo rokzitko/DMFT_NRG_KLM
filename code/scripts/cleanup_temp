@@ -9,7 +9,7 @@ rm -f data
 rm -f param.param param.extra param.dmft param
 
 # Mesh refinement
-rm -f logNEW* logUNION*
+rm -f logNEW* logUNION* log.resample
 rm -f ReDelta*NEW* ReDelta*OLD* ReDelta*TEMP
 rm -f ImDelta*NEW* ImDelta*OLD* ImDelta*TEMP
 
