@@ -38,4 +38,4 @@ ENDSCRIPT
 
 close(F);
 
-system ("sbatch -vv $myjob 2>&1 >sbatch.log");
+system("sbatch -vv $myjob 2>&1 >sbatch.log") == 0 or die "sbatch failed.";
