@@ -140,7 +140,7 @@ if ($mesh_refinement) {
 # Mixing of hybridization function
 chomp(my $alpha = `getparam alpha param.loop`);
 print "alpha=$alpha\n";
-(0.0 <= $alpha && $alpha <= 1.0) or die "alpha is zero; 0<=alpha<=1";
+(0.0 < $alpha && $alpha <= 1.0) or die "alpha is zero; 0<alpha<=1";
 my $f1 = $alpha;
 my $f2 = 1.0-$alpha;
 system("mixy $f1 ReDelta.dat.NEW-common $f2 ReDelta.dat.OLD-common >ReDelta.dat.TEMP") == 0 or die;
