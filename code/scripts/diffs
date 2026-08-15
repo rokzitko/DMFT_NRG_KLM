@@ -7,20 +7,20 @@ use warnings;
 
 my $iter = `getiter`;
 
-diff("imaw", "DIFFS_C");  ### IMPORTANT: use imaw here !!
+diff("imaw.dat", "imaw.dat.prev",   "DIFFS_C");      ### IMPORTANT: use imaw here !!
+diff("imaw.dat", "res/c-self.dat", "DIFFS_LatLoc"); ### Lattice vs local spectral function
 
 sub diff {
  return if ($iter == 1);
  my $previous = $iter-1;
 
- my $what = shift;
- my $output = shift;
-
- my $fn1 = "$what.dat";
- my $fn2 = "$what.dat.prev";
+ my $fn1 = shift;
+ my $fn2 = shift;
 
  -s $fn1 or die "$fn1 does not exist. Stopped";
  -s $fn2 or die "$fn2 does not exist. Stopped";
+
+ my $output = shift;
 
  # Support for adaptive mesh
  system("resample $fn1 mesh.dat $fn1.tmp") == 0 or die "resample failed: $?";
