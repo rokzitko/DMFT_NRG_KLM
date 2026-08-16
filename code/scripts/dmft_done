@@ -4,7 +4,7 @@
 
 use strict;
 use warnings;
-use Term::ANSIColor qw(:constants);
+use Term::ANSIColor qw(:constants colored);
 
 my $mesh_refinement = 1; # 0=fixed mesh; 1=automatically refined mesh
 
@@ -169,7 +169,9 @@ system("delete_NRG_output") == 0 or die;
 # Note that if we stop at this point, the calculation can be continued by running DMFT, because the input (Delta.dat)
 # is already prepared (mixing, etc.).
 if (!-e "CONVERGED" && !-e "STOP") {
-  system("scripts/DMFT") == 0 or die "DMFT failed: $?";
+    system("scripts/DMFT") == 0 or die "DMFT failed: $?";
+} else {
+    print colored("DONE\n", 'green');
 }
 
 sub msg
