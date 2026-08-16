@@ -8,7 +8,7 @@ chomp(my $T = `getparam T param.loop`);
 chomp(my $mu = `cat param.mu`);
 ($? == 0) or die;
 
-my $param = "-c 30 -a 1e-8 -r 1e-7 -i 3 -k 5";
+my $param = "-E -c 30 -a 1e-7 -r 1e-6 -i 3 -k 5";
 
 my $res = `bubble $param -e 1 -p DOS.dat -f 0 1 0 $T $mu resigma.dat imsigma.dat`;
 ($? == 0) or die;

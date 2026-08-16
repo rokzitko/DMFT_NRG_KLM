@@ -19,7 +19,7 @@ my $mu = `cat param.mu`;
 chomp($mu);
 
 my $fn = "PHI.dat"; # transport function
-my $param = "-p $fn -c 30 -a 1e-8 -r 1e-7 -i 3 -k 6 -E"; # numerical integration parameters
+my $param = "-E -p $fn -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6"; # numerical integration parameters
 
 sub calc {
     my $Omega = shift;

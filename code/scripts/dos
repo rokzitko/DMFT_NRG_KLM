@@ -10,7 +10,7 @@ use Math::Complex;
 chomp(my $T = `getparam T param.loop`);
 
 my $fn = "DOS.dat";
-my $param = "-p $fn -c 30 -a 1e-8 -r 1e-7 -i 3 -k 6";
+my $param = "-E -p $fn -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6";
 
 # Chemical potential
 chomp(my $mu = `cat param.mu`);

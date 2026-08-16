@@ -16,7 +16,7 @@ my $factor = 2*pi;
 # (2/pi) from the kernel Phi = 2/pi Sqrt[...]
 # pi^2 from the difference between A(w)=-1/Pi Im[..] and a(w)=-Im[..]
 
-my $param = "-c 30 -a 1e-8 -r 1e-7 -i 3 -k 6";
+my $param = "-E -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6";
 
 # Chemical potential
 chomp(my $mu = `cat param.mu`);
