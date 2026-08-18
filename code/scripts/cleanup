@@ -28,4 +28,4 @@ rm -f mesh.dat
 # Alt lattice spectral funciton
 rm -f dos.dat
 # Flag files, loop control
-rm -f CONVERGED STOP ITER DIFFS_C
+rm -f CONVERGED STOP ITER DIFFS_C DIFFS_LatLoc
