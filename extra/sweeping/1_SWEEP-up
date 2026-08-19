@@ -1,0 +1,43 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+my $Tinit = "1e-2"; # as string
+
+my $Tend = 10.0;
+my $ratio = 1.5;
+
+open(L, ">log") or die;
+
+# Strategy: find the last converged, use this to initialize a new calculation at updated temperature
+
+my $last_converged;
+for (my $T = $Tinit; $T <= $Tend; $T *= $ratio) {
+    print "T=$T\n";
+    my $dir = "T=$T";
+    if (-d "$dir") {
+        # Already computed
+        if (-e "$dir/CONVERGED") {
+            $last_converged = $dir;
+        }
+    } else {
+        # New instance
+        if (defined($last_converged)) {
+            print L "$last_converged $dir\n";
+            print "Copying $last_converged -> $dir\n";
+            system("cp -r $last_converged $dir") == 0 or die;
+            -d $dir or die;
+            chdir($dir);
+            system("scripts/cleanup keep") == 0 or die;
+            system("setparam T $T param.loop") == 0 or die;
+            system("./DMFT");
+            if (-e "CONVERGED") {
+              $last_converged = $dir;
+            }
+            chdir("..");
+        } else {
+            die "No place to start from, stopping...";
+        }
+    }
+}
