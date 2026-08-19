@@ -4,6 +4,7 @@
 
 use strict;
 use warnings;
+use IPC::Cmd qw(can_run);
 
 my $mma = 0; # 0=instantiate (stand-alone), 1=nrginit (Mathematica)
 my $local = 1; #0=submit a Slurm job, 1=run locally
@@ -57,7 +58,11 @@ for (my $i = 1; $i <= $Nz; $i++) {
   }
 
   if ($local) {
-    system("mynrgrun") == 0 or die "nrg failed: $?";
+    if (can_run("mynrgrun")) {
+      system("mynrgrun") == 0 or die "mynrgrun failed: $?"; # custom wrapper
+    } else {
+      system("nrg") == 0 or die "nrg failed: $?"; # run executable directly as fall-back
+    }
   } else {
     system("subslurm") == 0 or die "subslurm failed: $?";
   }
