@@ -5,6 +5,8 @@
 use strict;
 use warnings;
 
+my $allowextrapolation = 0;
+
 -s "ReDelta.dat" && -s "ImDelta.dat" or die;
 
 system("scripts/init_mesh >mesh-new.dat") == 0 or die "init_mesh failed: $?";
@@ -16,8 +18,9 @@ system("wc -l mesh*.dat");
 # Resampling
 system("mv ReDelta.dat ReDelta.dat.INIT") == 0 or die;
 system("mv ImDelta.dat ImDelta.dat.INIT") == 0 or die;
-system("resample -e ReDelta.dat.INIT mesh.dat ReDelta.dat") == 0 or die;
-system("resample -e ImDelta.dat.INIT mesh.dat ImDelta.dat") == 0 or die;
+my $args = $allowextrapolation ? "-e" : "";
+system("resample $args ReDelta.dat.INIT mesh.dat ReDelta.dat") == 0 or die;
+system("resample $args ImDelta.dat.INIT mesh.dat ImDelta.dat") == 0 or die;
 
 unlink("ReDelta.dat.INIT");
 unlink("ImDelta.dat.INIT");
