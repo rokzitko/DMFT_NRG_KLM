@@ -17,5 +17,4 @@ chomp(my $mu = `cat param.mu`);
 ($? == 0) or die;
 
 # Compute dos.dat to be compared with imaw.dat
-# Add -o ldos.dat
-system("bubble -d $param 0 1 0 $T $mu resigma.dat imsigma.dat") == 0 or die;
+system("bubble -d -o ldos.dat $param 0 1 0 $T $mu resigma.dat imsigma.dat") == 0 or die;

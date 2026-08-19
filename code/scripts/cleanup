@@ -26,6 +26,6 @@ rm -f FSOL.dat FSOLNEG.dat
 # Frequency mesh
 rm -f mesh.dat
 # Alt lattice spectral funciton
-rm -f dos.dat
+rm -f ldos.dat
 # Flag files, loop control
 rm -f CONVERGED STOP ITER DIFFS_C DIFFS_LatLoc
