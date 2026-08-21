@@ -8,11 +8,11 @@ use File::Copy;
 
 my $iter = `getiter`;
 
-# Note: For Broyden mixing (if implemented), $track must be 1.
+# Broyden mixing requires these per-iteration snapshots, so $track must be 1.
 my $track = 1; # 0=do not store copies in dmft/, 1=track DMFT iteration by storing copies of all results in dmft/.
 
 chomp(my $tr = `getparam track param.loop`);
-$track = ($tr eq "true")  ? 1 : 0;
+$track = (lc($tr) eq "true")  ? 1 : 0;
 
 sub cp {
     my $fn = shift;
@@ -43,6 +43,11 @@ cp("imsigma.dat");
 cp("resigma.dat");
 cp("imaw.dat");
 cp("reaw.dat");
+
+# Inputs used by this iteration, required to reconstruct Broyden residuals.
+cp("ReDelta.dat");
+cp("ImDelta.dat");
+cp("param.mu");
 
 # Best-so-far results for post-processing.
 system("cp -v res/imsigma.dat imsigma.dat") == 0 or die;

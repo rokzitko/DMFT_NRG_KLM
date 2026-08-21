@@ -22,11 +22,21 @@ clipG=1e-14
 
 # Conduction band occupancy
 goal=0.8
+# Maximum step size for chemical potential changes
 maxdx=0.05
+# Underrelaxation for standard control; initial mu mixing factor for Broyden
 under=0.5
+# std or broyden
+mucontrol=std
+# Number of initial cycles using standard occupancy control (Broyden)
+stdinit=10
 
-# Linear mixing parameter for Delta.dat
+# Hybridization-function mixing: linear or broyden
+mixing=linear
+# Initial/linear Delta mixing factor
 alpha=0.5
+# Maximum number of residual vectors retained (Broyden)
+broydenM=50
 
 # Accuracy goal for the spectral function (integrated
 # difference between two iterations)
@@ -44,7 +54,7 @@ opt_mindx=1e-10
 # - Lowest value of y (|ImDelta|) for allowing insertion of extra points
 opt_ymin=1e-5
 
-# Track iteration by keeping snapshots in dmft/
+# Track iteration by keeping snapshots in dmft/ (must be 'true' for Broyden mixing)
 track=false
 
 [param]

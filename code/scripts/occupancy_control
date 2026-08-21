@@ -2,6 +2,8 @@
 # Occupancy control based on shifting chemical potential mu to match the density computed through lattice GF
 # Rok Zitko, rok.zitko@ijs.si, 2025-2026
 
+import argparse
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -9,6 +11,21 @@ from scipy.integrate import quad
 from scipy.optimize import root_scalar
 import subprocess
 import shlex
+
+
+parser = argparse.ArgumentParser(description="DMFT occupancy control")
+parser.add_argument(
+    "--measure-only",
+    action="store_true",
+    help="measure and optionally record occupancy without changing param.mu",
+)
+parser.add_argument(
+    "--history",
+    action="store_true",
+    help="write dmft/<iteration>-mu-occup.dat for Broyden control",
+)
+args = parser.parse_args()
+
 
 def get_float(command, default=None):
     command = shlex.split(command)
@@ -62,6 +79,27 @@ def n(shift):
 
 n0 = n(0)
 print("n[shift=0] =", n0)
+
+if args.history:
+    result = subprocess.run(
+        ["getiter"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    iteration = int(result.stdout.strip())
+    history_dir = Path("dmft")
+    if not history_dir.is_dir():
+        raise RuntimeError("dmft/ does not exist; occupancy history requires track=true")
+    history_file = history_dir / f"{iteration}-mu-occup.dat"
+    temporary = history_file.with_name(f".{history_file.name}.tmp")
+    temporary.write_text(f"{oldmu:.17g} {n0:.17g}\n", encoding="ascii")
+    temporary.replace(history_file)
+    print("occupancy history =", history_file)
+
+if args.measure_only:
+    print("Measurement-only mode: param.mu was not changed.")
+    raise SystemExit(0)
 
 # --- Solve for shift such that n(shift) == GOAL ---
 sol = root_scalar(lambda shift: n(shift) - GOAL, x0=0, method='secant')

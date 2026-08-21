@@ -11,6 +11,35 @@ my $mesh_refinement = 1; # 0=fixed mesh; 1=automatically refined mesh
 my $Nz = `getparam Nz param.loop`;
 chomp($Nz);
 
+chomp(my $mixing = `getparam mixing param.loop 2>/dev/null`);
+$mixing = "linear" if $mixing eq "";
+$mixing = lc($mixing);
+($mixing eq "linear" || $mixing eq "broyden")
+    or die "Invalid mixing=$mixing; expected linear or broyden.\n";
+
+chomp(my $mucontrol = `getparam mucontrol param.loop 2>/dev/null`);
+$mucontrol = "std" if $mucontrol eq "";
+$mucontrol = lc($mucontrol);
+($mucontrol eq "std" || $mucontrol eq "broyden")
+    or die "Invalid mucontrol=$mucontrol; expected std or broyden.\n";
+
+my $broyden_delta = ($mixing eq "broyden");
+my $broyden_mu = ($mucontrol eq "broyden");
+my $stdinit = 0;
+if ($broyden_mu) {
+    chomp(my $configured = `getparam stdinit param.loop 2>/dev/null`);
+    $stdinit = $configured if $configured ne "";
+    $stdinit =~ /\A\d+\z/ or die "stdinit must be a non-negative integer.\n";
+    $stdinit = 0 + $stdinit;
+}
+
+if ($broyden_delta || $broyden_mu) {
+    chomp(my $track = `getparam track param.loop`);
+    lc($track) eq "true"
+        or die "Broyden mixing/control requires track=true in param.loop.\n";
+}
+print "mixing=$mixing mucontrol=$mucontrol stdinit=$stdinit\n";
+
 my $done = 0;
 while (!$done) {
     # Check if the calculations are completed
@@ -97,9 +126,15 @@ system("scripts/checkconv") == 0 or die "checkconv failed: $?";
 
 ## Start preparing input for the next iteration
 
-# Occupancy control
-msg("occupancy_control");
-system("scripts/occupancy_control >occupancy.control.log 2>&1") == 0 or die "occupacy_control failed: $?";
+# With standard control, retain the original ordering and update mu before dmftDOS.
+if (!$broyden_mu) {
+    msg("occupancy_control");
+    system("scripts/occupancy_control >occupancy.control.log 2>&1") == 0
+        or die "occupancy_control failed: $?";
+}
+
+chomp(my $iter = `getiter`);
+$iter =~ /\A\d+\z/ && $iter >= 1 or die "Invalid iteration number: $iter\n";
 
 # Compute hybridization function ImDelta.dat, ReDelta.dat
 msg("dmftDOS");
@@ -137,16 +172,45 @@ if ($mesh_refinement) {
     system("cp ImDelta.dat.NEW ImDelta.dat.NEW-common") == 0 or die;
 }
 
-# Mixing of hybridization function
-chomp(my $alpha = `getparam alpha param.loop`);
-print "alpha=$alpha\n";
-(0.0 < $alpha && $alpha <= 1.0) or die "alpha is zero; 0<alpha<=1";
-my $f1 = $alpha;
-my $f2 = 1.0-$alpha;
-system("mixy $f1 ReDelta.dat.NEW-common $f2 ReDelta.dat.OLD-common >ReDelta.dat.TEMP") == 0 or die;
--s "ReDelta.dat.TEMP" or die "ReDelta Mixing failed.";
-system("mixy $f1 ImDelta.dat.NEW-common $f2 ImDelta.dat.OLD-common >ImDelta.dat.TEMP") == 0 or die;
--s "ImDelta.dat.TEMP" or die "ImDelta Mixing failed.";
+# Broyden mu history must pair the measured occupancy and raw DMFT output with
+# the chemical potential used by the solver. During warm-up the standard
+# controller is therefore run here, after dmftDOS, rather than above it.
+my $active_broyden_mu = $broyden_mu && $iter > $stdinit;
+if ($broyden_mu) {
+    msg($active_broyden_mu ? "occupancy_measurement" : "occupancy_control (stdinit)");
+    my $command = $active_broyden_mu
+        ? "scripts/occupancy_control --measure-only --history >occupancy.control.log 2>&1"
+        : "scripts/occupancy_control --history >occupancy.control.log 2>&1";
+    system($command) == 0 or die "occupancy_control failed: $?";
+}
+
+# Linear mixing of the hybridization function remains the default.
+if (!$broyden_delta) {
+    chomp(my $alpha = `getparam alpha param.loop`);
+    print "alpha=$alpha\n";
+    (0.0 < $alpha && $alpha <= 1.0) or die "alpha is zero; 0<alpha<=1";
+    my $f1 = $alpha;
+    my $f2 = 1.0-$alpha;
+    system("mixy $f1 ReDelta.dat.NEW-common $f2 ReDelta.dat.OLD-common >ReDelta.dat.TEMP") == 0 or die;
+    -s "ReDelta.dat.TEMP" or die "ReDelta Mixing failed.";
+    system("mixy $f1 ImDelta.dat.NEW-common $f2 ImDelta.dat.OLD-common >ImDelta.dat.TEMP") == 0 or die;
+    -s "ImDelta.dat.TEMP" or die "ImDelta Mixing failed.";
+}
+
+# A single invocation gives a combined update when both flags are present.
+if ($broyden_delta || $active_broyden_mu) {
+    msg("broyden");
+    my @command = ("scripts/broyden.py");
+    push(@command, "--delta") if $broyden_delta;
+    push(@command, "--mu") if $active_broyden_mu;
+    my $pipeline = join(" ", @command) . " 2>&1 | tee -a broyden.log";
+    system("bash", "-o", "pipefail", "-c", $pipeline) == 0
+        or die "broyden.py failed: $?";
+    if ($broyden_delta) {
+        -s "ReDelta.dat.TEMP" or die "Broyden ReDelta mixing failed.";
+        -s "ImDelta.dat.TEMP" or die "Broyden ImDelta mixing failed.";
+    }
+}
 
 # Clipping of the hybridization function
 chomp(my $imclip = `getparam clipDelta param.loop`);
