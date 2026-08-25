@@ -24,6 +24,7 @@ my $param = "-E -p $fn -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6"; # numerical integration
 sub calc {
     my $Omega = shift;
     my $res = `bubble -q -O $Omega $param 0 2 0 $T $mu resigma.dat imsigma.dat`;
+    $? == 0 or die;
     my $a0 = $factor*$res;
     my $cond = $a0;
     return $cond;
