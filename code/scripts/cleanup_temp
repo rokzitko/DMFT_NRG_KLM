@@ -15,3 +15,9 @@ rm -f ImDelta*NEW* ImDelta*OLD* ImDelta*TEMP
 
 # Temporary directories
 delete_NRG_output
+
+# Slurm logs
+rm -f slurm-*.out
+
+# Other temporaries
+rm -rf imaw.dat.prev
