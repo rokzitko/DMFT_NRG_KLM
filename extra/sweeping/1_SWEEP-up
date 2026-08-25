@@ -31,7 +31,7 @@ for (my $T = $Tinit; $T <= $Tend; $T *= $ratio) {
             chdir($dir);
             system("scripts/cleanup keep") == 0 or die;
             system("setparam T $T param.loop") == 0 or die;
-            system("./DMFT");
+            system("./START");
             if (-e "CONVERGED") {
               $last_converged = $dir;
             }
