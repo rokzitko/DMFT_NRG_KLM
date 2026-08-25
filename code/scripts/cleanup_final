@@ -1,0 +1,45 @@
+#!/bin/bash
+set -euo pipefail
+
+# Cleanup after convergence has been achieved and there is no need to follow up the calculation,
+# i.e., we delete scripts, template, output dirs, etc.
+# Nevertheless, we need to keep enough information to permit the calculation to be reproduced.
+# Keep: parameter file; full model and model operator definitions; DOS, Phi tables
+
+# Preserve the exact scripts even when the calculation directory has no Git metadata.
+archive=scripts.tar.gz
+manifest=scripts.sha256
+archive_tmp="${archive}.tmp"
+manifest_tmp="${manifest}.tmp"
+trap 'rm -f -- "$archive_tmp" "$manifest_tmp"' EXIT
+
+(
+  cd scripts
+  find . -type f -print0 |
+    LC_ALL=C sort -z |
+    while IFS= read -r -d '' file; do
+      sha256sum "$file"
+    done
+) >"$manifest_tmp"
+
+(
+  cd scripts
+  sha256sum -c "../$manifest_tmp" >/dev/null
+)
+
+tar -czf "$archive_tmp" scripts/
+tar -tzf "$archive_tmp" >/dev/null
+mv -f -- "$archive_tmp" "$archive"
+mv -f -- "$manifest_tmp" "$manifest"
+
+# Remove the templates (output files), but keep the model definition!
+make -C template clean
+
+# Detailed output
+rm -rf dmft/ res/
+
+# Misc files that we don't really need
+rm -f README.md
+
+# Delete this script and its directory only after all preservation and cleanup steps succeeded.
+rm -rf scripts
