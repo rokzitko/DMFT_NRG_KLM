@@ -1,0 +1,28 @@
+#!/usr/bin/env perl
+# Traverse directories, force cleanp (cleanup_temp) and run postprocessing
+
+use strict;
+use warnings;
+
+foreach (<*>) {
+  -d or next;
+  -e "$_/param.loop" and -s "$_/imsigma.dat" or next; # skip non-DMFT
+  print "$_\n";
+  chdir $_;
+
+  system("scripts/cleanup_temp") == 0 or die "cleanup failed";
+
+  # Extra cleanup
+  system("rm -f imaw.dat.prev");
+  system("rm -f template/op* template/ham* template/mmalog template/data.in");
+
+  # Postprocessing scripts update
+  system "cp -v ../bbl scripts/";
+  system "cp -v ../cond.opt-PHI scripts/";
+  system "cp -v ../dos scripts/";
+  system "cp -v ../ekin scripts/";
+
+  # Postprocessing
+  system("scripts/post") == 0 or die "postprocessing failed";
+  chdir "..";
+}
