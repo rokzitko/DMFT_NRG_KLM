@@ -1,0 +1,569 @@
+#!/usr/bin/env python3
+"""Estimate the quasiparticle renormalization factor from Re Sigma."""
+
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+import sys
+
+import numpy as np
+
+
+BINS_PER_DECADE = 8
+MIN_WINDOW_BINS = 6
+MIN_WINDOW_POINTS = 40
+MIN_STABLE_WINDOWS = 3
+MAX_REL_NOISE = 0.002
+MAX_REL_MODEL_CHANGE = 0.02
+MAX_REL_SPLIT_CHANGE = 0.01
+MAX_OUTLIER_FRACTION = 0.20
+
+
+class ZError(RuntimeError):
+    pass
+
+
+@dataclass
+class RobustFit:
+    coefficients: np.ndarray
+    scale: float
+    inliers: np.ndarray
+    residual_scale: float
+
+    def evaluate(self, x):
+        return np.polynomial.polynomial.polyval(np.asarray(x) / self.scale, self.coefficients)
+
+    @property
+    def derivative_at_zero(self):
+        return float(self.coefficients[1] / self.scale)
+
+
+@dataclass
+class WindowFit:
+    lower: float
+    upper: float
+    slope: float
+    z: float
+    points: int
+    rejected: int
+    relative_noise: float
+    relative_model_change: float
+    relative_split_change: float
+    quality: float
+    stable: bool
+
+
+@dataclass
+class Result:
+    z: float
+    slope: float
+    lower: float
+    upper: float
+    points: int
+    rejected: int
+    range_spread: float
+    forced: bool
+    issue: str | None
+    fit: RobustFit
+    in_range: np.ndarray
+    inliers: np.ndarray
+    warnings: list[str]
+
+
+def load_table(path):
+    try:
+        table = np.loadtxt(path, dtype=float, ndmin=2)
+    except (OSError, ValueError) as exc:
+        raise ZError(f"failed to read {path}: {exc}") from exc
+
+    if table.ndim != 2 or table.shape[1] != 2:
+        raise ZError(f"expected exactly two columns in {path}")
+    if table.shape[0] < 2 * MIN_WINDOW_POINTS:
+        raise ZError(f"too few rows in {path}; need at least {2 * MIN_WINDOW_POINTS}")
+    if not np.all(np.isfinite(table)):
+        raise ZError(f"non-finite value found in {path}")
+    if np.any(np.diff(table[:, 0]) <= 0.0):
+        raise ZError(f"frequency column in {path} is not strictly increasing")
+    if not np.any(table[:, 0] < 0.0) or not np.any(table[:, 0] > 0.0):
+        raise ZError(f"{path} must contain frequencies on both sides of zero")
+    return table[:, 0], table[:, 1]
+
+
+def paired_data(omega, sigma):
+    negative = omega < 0.0
+    positive = omega > 0.0
+    wn = -omega[negative][::-1]
+    sn = sigma[negative][::-1]
+    wp = omega[positive]
+    sp = sigma[positive]
+
+    overlap_low = max(wn[0], wp[0])
+    overlap_high = min(wn[-1], wp[-1])
+    if overlap_low >= overlap_high:
+        raise ZError("positive and negative frequency meshes do not overlap")
+
+    symmetric = wn.shape == wp.shape and np.allclose(wn, wp, rtol=1e-10, atol=0.0)
+    if symmetric:
+        w = 0.5 * (wn + wp)
+        minus = sn
+        plus = sp
+    else:
+        wn_mask = (wn >= overlap_low) & (wn <= overlap_high)
+        wp_mask = (wp >= overlap_low) & (wp <= overlap_high)
+        if np.count_nonzero(wp_mask) <= np.count_nonzero(wn_mask):
+            w = wp[wp_mask]
+            plus = sp[wp_mask]
+            minus = np.interp(w, wn, sn)
+        else:
+            w = wn[wn_mask]
+            minus = sn[wn_mask]
+            plus = np.interp(w, wp, sp)
+
+    if w.size < MIN_WINDOW_POINTS:
+        raise ZError("too few paired positive/negative frequencies")
+    slope = (plus - minus) / (2.0 * w)
+    if not np.all(np.isfinite(slope)):
+        raise ZError("non-finite symmetric slope estimate")
+    return w, slope
+
+
+def robust_polynomial_fit(x, y, degree):
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if x.size <= degree:
+        raise ZError("too few points for polynomial fit")
+
+    x_scale = float(np.max(np.abs(x)))
+    if not np.isfinite(x_scale) or x_scale == 0.0:
+        raise ZError("zero frequency span in polynomial fit")
+    design = np.polynomial.polynomial.polyvander(x / x_scale, degree)
+    coefficients = np.linalg.lstsq(design, y, rcond=None)[0]
+
+    for _ in range(30):
+        residual = y - design @ coefficients
+        center = float(np.median(residual))
+        mad = float(1.4826 * np.median(np.abs(residual - center)))
+        floor = 100.0 * np.finfo(float).eps * max(float(np.max(np.abs(y))), 1.0)
+        robust_scale = max(mad, floor)
+        distance = np.abs(residual - center) / (1.345 * robust_scale)
+        new_weights = np.ones_like(distance)
+        large = distance > 1.0
+        new_weights[large] = 1.0 / distance[large]
+        root_weights = np.sqrt(new_weights)
+        new_coefficients = np.linalg.lstsq(
+            design * root_weights[:, None], y * root_weights, rcond=None
+        )[0]
+        if np.allclose(new_coefficients, coefficients, rtol=1e-10, atol=1e-13):
+            coefficients = new_coefficients
+            break
+        coefficients = new_coefficients
+
+    residual = y - design @ coefficients
+    center = float(np.median(residual))
+    mad = float(1.4826 * np.median(np.abs(residual - center)))
+    floor = 100.0 * np.finfo(float).eps * max(float(np.max(np.abs(y))), 1.0)
+    robust_scale = max(mad, floor)
+    # A low-order polynomial has small, smooth truncation residuals. Do not
+    # mistake those for outliers merely because the tabulated data are precise.
+    model_floor = 1e-5 * max(float(np.ptp(y)), floor)
+    rejection_limit = max(6.0 * robust_scale, model_floor)
+    inliers = np.abs(residual - center) <= rejection_limit
+
+    if np.count_nonzero(inliers) > degree:
+        coefficients = np.linalg.lstsq(design[inliers], y[inliers], rcond=None)[0]
+        residual = y - design @ coefficients
+        center = float(np.median(residual[inliers]))
+        mad = float(1.4826 * np.median(np.abs(residual[inliers] - center)))
+        robust_scale = max(mad, floor)
+        rejection_limit = max(6.0 * robust_scale, model_floor)
+        inliers = np.abs(residual - center) <= rejection_limit
+
+    return RobustFit(coefficients, x_scale, inliers, robust_scale)
+
+
+def z_from_slope(slope):
+    denominator = 1.0 - slope
+    if not np.isfinite(denominator) or abs(denominator) < 10.0 * np.finfo(float).eps:
+        raise ZError("1 - dReSigma/domega is numerically zero")
+    z = 1.0 / denominator
+    if not np.isfinite(z):
+        raise ZError("non-finite Z estimate")
+    return float(z)
+
+
+def relative_change(first, second):
+    return abs(first - second) / max(abs(first), abs(second), np.finfo(float).tiny)
+
+
+def fit_slope_window(w, local_slope, lower, upper):
+    selected = (w >= lower) & (w <= upper)
+    count = int(np.count_nonzero(selected))
+    if count < MIN_WINDOW_POINTS:
+        return None
+
+    ww = w[selected]
+    qq = local_slope[selected]
+    quadratic = robust_polynomial_fit(ww**2, qq, 1)
+    quartic = robust_polynomial_fit(ww**2, qq, 2)
+    slope = float(quadratic.coefficients[0])
+    z = z_from_slope(slope)
+    z_quartic = z_from_slope(float(quartic.coefficients[0]))
+
+    midpoint = np.sqrt(lower * upper)
+    left = ww <= midpoint
+    right = ww > midpoint
+    if np.count_nonzero(left) < 10 or np.count_nonzero(right) < 10:
+        return None
+    left_fit = robust_polynomial_fit(ww[left] ** 2, qq[left], 1)
+    right_fit = robust_polynomial_fit(ww[right] ** 2, qq[right], 1)
+    z_left = z_from_slope(float(left_fit.coefficients[0]))
+    z_right = z_from_slope(float(right_fit.coefficients[0]))
+
+    denominator = max(abs(1.0 - slope), np.finfo(float).tiny)
+    relative_noise = quadratic.residual_scale / denominator
+    model_change = relative_change(z, z_quartic)
+    split_change = max(relative_change(z, z_left), relative_change(z, z_right))
+    rejected = count - int(np.count_nonzero(quadratic.inliers))
+    outlier_fraction = rejected / count
+    quality = max(
+        relative_noise / MAX_REL_NOISE,
+        model_change / MAX_REL_MODEL_CHANGE,
+        split_change / MAX_REL_SPLIT_CHANGE,
+        outlier_fraction / MAX_OUTLIER_FRACTION,
+    )
+    stable = quality <= 1.0
+    return WindowFit(
+        lower,
+        upper,
+        slope,
+        z,
+        count,
+        rejected,
+        relative_noise,
+        model_change,
+        split_change,
+        quality,
+        stable,
+    )
+
+
+def candidate_windows(w, local_slope):
+    search_upper = np.sqrt(w[0] * w[-1])
+    minimum_upper_index = min(w.size - 1, MIN_WINDOW_POINTS - 1)
+    search_upper = max(search_upper, float(w[minimum_upper_index]))
+    search_upper = min(search_upper, float(w[-1]))
+    decades = max(np.log10(search_upper / w[0]), 1.0)
+    bin_count = min(
+        64,
+        max(MIN_WINDOW_BINS + MIN_STABLE_WINDOWS, int(np.ceil(decades * BINS_PER_DECADE))),
+    )
+    edges = np.geomspace(w[0], search_upper, bin_count + 1)
+    edges[0] = np.nextafter(edges[0], 0.0)
+    edges[-1] = np.nextafter(edges[-1], np.inf)
+
+    candidates = []
+    maximum_start = max(0, bin_count // 3)
+    for start in range(maximum_start + 1):
+        lower = float(edges[start])
+        for end in range(start + MIN_WINDOW_BINS, bin_count + 1):
+            upper = float(edges[end])
+            try:
+                candidate = fit_slope_window(w, local_slope, lower, upper)
+            except (ZError, np.linalg.LinAlgError):
+                candidate = None
+            if candidate is not None:
+                candidates.append((start, end, candidate))
+    if not candidates:
+        raise ZError("could not construct a low-frequency fit window")
+    return candidates
+
+
+def select_window(w, local_slope):
+    candidates = candidate_windows(w, local_slope)
+    starts = sorted({start for start, _, _ in candidates})
+    for start in starts:
+        at_start = sorted(
+            ((end, candidate) for s, end, candidate in candidates if s == start),
+            key=lambda item: item[0],
+        )
+        run = []
+        previous_end = None
+        for end, candidate in at_start:
+            if candidate.stable:
+                if previous_end is not None and end != previous_end + 1:
+                    if len(run) >= MIN_STABLE_WINDOWS:
+                        return run[-1], run, None
+                    run = []
+                run.append(candidate)
+                previous_end = end
+            else:
+                if len(run) >= MIN_STABLE_WINDOWS:
+                    return run[-1], run, None
+                run = []
+                previous_end = None
+        if len(run) >= MIN_STABLE_WINDOWS:
+            return run[-1], run, None
+
+    fallback = min((candidate for _, _, candidate in candidates), key=lambda item: item.quality)
+    issue = (
+        "no stable low-frequency window; best candidate has "
+        f"quality={fallback.quality:.3g}, but {MIN_STABLE_WINDOWS} consecutive "
+        "stable windows are required"
+    )
+    return fallback, [fallback], issue
+
+
+def determine_z(omega, sigma, force):
+    w, local_slope = paired_data(omega, sigma)
+    window, stable_run, issue = select_window(w, local_slope)
+    forced = issue is not None
+    if forced and not force:
+        raise ZError(f"{issue}; use --force to obtain the best available estimate")
+
+    in_range = (np.abs(omega) >= window.lower) & (np.abs(omega) <= window.upper)
+    if np.count_nonzero(in_range) < 8:
+        raise ZError("selected fit range contains too few original data points")
+    final_fit = robust_polynomial_fit(omega[in_range], sigma[in_range], 3)
+    slope = final_fit.derivative_at_zero
+    z = z_from_slope(slope)
+    rejected = int(np.count_nonzero(in_range) - np.count_nonzero(final_fit.inliers))
+
+    candidate_values = np.array([candidate.z for candidate in stable_run])
+    if candidate_values.size > 1:
+        range_spread = float(np.max(candidate_values) - np.min(candidate_values))
+    else:
+        range_spread = 0.0
+
+    mismatch = relative_change(z, window.z)
+    if mismatch > MAX_REL_MODEL_CHANGE:
+        mismatch_issue = (
+            "final cubic fit and symmetric-slope fit disagree by " f"{100.0 * mismatch:.2g}%"
+        )
+        if issue is None:
+            issue = mismatch_issue
+        else:
+            issue = f"{issue}; {mismatch_issue}"
+        forced = True
+        if not force:
+            raise ZError(f"{issue}; use --force to obtain the best available estimate")
+
+    full_inliers = np.zeros(omega.size, dtype=bool)
+    full_inliers[np.flatnonzero(in_range)] = final_fit.inliers
+    warnings = []
+    if z <= 0.0 or z > 1.0:
+        warnings.append(f"Z={z:.8g} is outside the conventional Fermi-liquid range 0 < Z <= 1")
+    if rejected:
+        warnings.append(f"robust fit rejected {rejected} of {np.count_nonzero(in_range)} points")
+
+    return Result(
+        z,
+        slope,
+        window.lower,
+        window.upper,
+        int(np.count_nonzero(in_range)),
+        rejected,
+        range_spread,
+        forced,
+        issue,
+        final_fit,
+        in_range,
+        full_inliers,
+        warnings,
+    )
+
+
+def set_raw_y_limits(axis, omega, sigma, limits):
+    visible = (omega >= limits[0]) & (omega <= limits[1])
+    values = sigma[visible]
+    if values.size == 0:
+        nearest = np.argsort(np.abs(omega))[:2]
+        values = sigma[nearest]
+    low = float(np.min(values))
+    high = float(np.max(values))
+    span = high - low
+    margin = 0.06 * span if span > 0.0 else 0.06 * max(abs(low), 1.0)
+    axis.set_ylim(low - margin, high + margin)
+
+
+def overview_limits(omega, sigma, minimum_scale):
+    tail_count = max(40, int(np.ceil(0.1 * omega.size)))
+    tail = np.argsort(np.abs(omega))[-tail_count:]
+    asymptotic_fit = robust_polynomial_fit(1.0 / omega[tail], sigma[tail], 2)
+    asymptote = float(asymptotic_fit.coefficients[0])
+    departure = np.abs(sigma - asymptote)
+    reference = float(np.quantile(departure, 0.99))
+    significant = departure >= 0.1 * reference
+    scale = max(float(np.max(np.abs(omega[significant]))), minimum_scale)
+    return (max(float(omega[0]), -scale), min(float(omega[-1]), scale))
+
+
+def write_plot(path, omega, sigma, result):
+    try:
+        import matplotlib
+    except ImportError as exc:
+        raise ZError("--plot requires matplotlib") from exc
+
+    matplotlib.use("Agg")
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as exc:
+        raise ZError("--plot requires matplotlib") from exc
+
+    nearest_scale = float(np.max(np.abs(omega[np.argsort(np.abs(omega))[: min(100, omega.size)]])))
+    nearest_limits = (-nearest_scale, nearest_scale)
+    expanded_scale = 10.0 * nearest_scale
+    expanded_limits = (
+        max(float(omega[0]), -expanded_scale),
+        min(float(omega[-1]), expanded_scale),
+    )
+    limits = (
+        overview_limits(omega, sigma, expanded_scale),
+        nearest_limits,
+        expanded_limits,
+    )
+    titles = (
+        "overview",
+        "100 nearest points",
+        "10x low-frequency range",
+    )
+
+    fig, axes = plt.subplots(1, 4, figsize=(16.0, 3.8), layout="constrained")
+    fit_omega = np.linspace(-result.upper, result.upper, 500)
+    tangent = result.fit.coefficients[0] + result.slope * fit_omega
+
+    standard_axes = (axes[0], axes[2], axes[3])
+    for axis, x_limits, title in zip(standard_axes, limits, titles):
+        axis.plot(omega, sigma, color="0.25", linewidth=0.8, label="Re Sigma")
+        selected = result.in_range & result.inliers
+        rejected = result.in_range & ~result.inliers
+        axis.plot(
+            omega[selected],
+            sigma[selected],
+            linestyle="none",
+            marker=".",
+            markersize=2.0,
+            color="#0072B2",
+            label="fit data",
+        )
+        if np.any(rejected):
+            axis.plot(
+                omega[rejected],
+                sigma[rejected],
+                linestyle="none",
+                marker="x",
+                markersize=3.0,
+                color="#D55E00",
+                label="rejected",
+            )
+        axis.plot(
+            fit_omega,
+            result.fit.evaluate(fit_omega),
+            color="#D55E00",
+            linewidth=1.4,
+            label="cubic fit",
+        )
+        axis.plot(
+            fit_omega,
+            tangent,
+            color="#009E73",
+            linewidth=1.0,
+            linestyle="--",
+            label="tangent at zero",
+        )
+        axis.axvspan(-result.upper, -result.lower, color="#0072B2", alpha=0.08)
+        axis.axvspan(result.lower, result.upper, color="#0072B2", alpha=0.08)
+        axis.axvline(0.0, color="0.7", linewidth=0.6)
+        axis.set_xlim(x_limits)
+        set_raw_y_limits(axis, omega, sigma, x_limits)
+        axis.set_title(title)
+        axis.set_xlabel(r"$\omega$")
+        axis.tick_params(direction="in", top=True, right=True)
+
+    negative = omega < 0.0
+    positive = omega > 0.0
+    axes[1].plot(
+        omega[positive],
+        sigma[positive],
+        color="#0072B2",
+        linewidth=0.9,
+        label=r"$\omega>0$",
+    )
+    axes[1].plot(
+        np.abs(omega[negative][::-1]),
+        sigma[negative][::-1],
+        color="#D55E00",
+        linewidth=0.9,
+        label=r"$\omega<0$",
+    )
+    axes[1].set_xscale("log")
+    nonzero_scale = np.abs(omega[omega != 0.0])
+    axes[1].set_xlim(float(np.min(nonzero_scale)), float(np.max(nonzero_scale)))
+    set_raw_y_limits(axes[1], omega, sigma, (float(omega[0]), float(omega[-1])))
+    axes[1].set_title(r"full range on $\log|\omega|$")
+    axes[1].set_xlabel(r"$|\omega|$")
+    axes[1].tick_params(direction="in", top=True, right=True)
+    axes[1].legend(frameon=False, fontsize=8, loc="best")
+
+    axes[0].set_ylabel(r"$\mathrm{Re}\,\Sigma(\omega)$")
+    axes[-1].legend(frameon=False, fontsize=8, loc="best")
+    status = "forced" if result.forced else "stable"
+    fig.suptitle(
+        f"Z={result.z:.8g}, dReSigma/domega={result.slope:.8g}, "
+        f"fit |omega|=[{result.lower:.3g}, {result.upper:.3g}] ({status})"
+    )
+    fig.savefig(path, metadata={"Title": "Quasiparticle renormalization factor Z"})
+    plt.close(fig)
+
+
+def print_report(result):
+    status = "forced estimate" if result.forced else "stable"
+    print(f"Z = {result.z:.12g}")
+    print(f"dReSigma/domega = {result.slope:.12g}")
+    print(f"fit |omega| range = [{result.lower:.12g}, {result.upper:.12g}]")
+    print(f"fit points = {result.points - result.rejected} retained, {result.rejected} rejected")
+    print(f"Z range spread = {result.range_spread:.6g}")
+    print(f"status = {status}")
+    if result.issue:
+        print(f"issue = {result.issue}")
+    for warning in result.warnings:
+        print(f"warning = {warning}")
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Estimate Z = 1/(1 - d ReSigma/domega at omega=0)."
+    )
+    parser.add_argument("input", nargs="?", type=Path, default=Path("resigma.dat"))
+    parser.add_argument("--plot", action="store_true", help="write the four-panel plot Z.pdf")
+    parser.add_argument("--report", action="store_true", help="print fit diagnostics")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="return the best estimate even when no stable window is found",
+    )
+    return parser.parse_args()
+
+
+def main():
+    arguments = parse_arguments()
+    try:
+        omega, sigma = load_table(arguments.input)
+        result = determine_z(omega, sigma, arguments.force)
+        if result.forced and result.issue:
+            print(f"Z: warning: {result.issue}", file=sys.stderr)
+        for warning in result.warnings:
+            print(f"Z: warning: {warning}", file=sys.stderr)
+        if arguments.plot:
+            write_plot(Path("Z.pdf"), omega, sigma, result)
+        if arguments.report:
+            print_report(result)
+        else:
+            print(f"{result.z:.12g}")
+    except (ZError, np.linalg.LinAlgError) as exc:
+        print(f"Z: error: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
