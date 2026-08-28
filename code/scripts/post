@@ -27,3 +27,7 @@ if (-x "scripts/cond.opt-PHI") {
 if (-x "scripts/Z") {
     system("scripts/Z --force >Z.dat") == 0 or die;
 }
+
+if (-x "scripts/plot.py") {
+    system("scripts/plot.py") == 0 or die;
+}
