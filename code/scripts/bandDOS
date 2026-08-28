@@ -33,7 +33,7 @@ print("bandDOS mu=$mu imclip=$imclip\n");
 
 my $fntmp = "$result_dir/imaw.dat.TMP"; # before clipping
 
-system("hilb", "-v", "-d", "DOS.dat", "-x", $mu,
+system("hilb", "-v", "-i", "cspline", "-d", "DOS.dat", "-x", $mu,
        "$result_dir/resigma.dat", "$result_dir/imsigma.dat",
        "$result_dir/reaw.dat", $fntmp) == 0 or die "hilb failed: $?";
 

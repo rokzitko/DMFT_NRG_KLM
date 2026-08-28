@@ -1,11 +1,28 @@
-#!/usr/bin/env wolframscript
+#!/usr/bin/env python3
+"""Generate the Bethe-lattice transport function in PHI.dat."""
 
-(* Note: remember to modify the prefactor in bbl* file according to the normalization of Phi(epsilon) function. *)
-(* Here we use Phi=(2/pi)(1-epsilon^2)^(3/2), thus the (2/pi) is explicitly part of PHI.dat. *)
-(* In this case, we only need the factor of pi^2 in bbl* *)
-(* RZ, Aug 2026 *)
+import math
+from pathlib import Path
+import sys
 
-m = Table[x, {x,-1.3,1.3,0.001}];
-phi[w_] := If[ Abs[w]<=1.0, 2/Pi (1-w^2)^(3/2), 0.0 ]; (* Note that we include here the factor of 2/pi *)
-l= Map[{#, Re @ phi[#]}&, m];
-Export["PHI.dat", l];
+
+OUTPUT = Path("PHI.dat")
+
+
+def main():
+    rows = []
+    for index in range(-1300, 1301):
+        epsilon = index / 1000
+        phi = 0.0
+        if abs(index) <= 1000:
+            phi = 2.0 / math.pi * max(0.0, 1.0 - epsilon**2) ** 1.5
+        rows.append(f"{epsilon:.3f}\t{phi:.17g}\n")
+    OUTPUT.write_text("".join(rows), encoding="ascii")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except OSError as exc:
+        print(f"mkPHI: unable to write {OUTPUT}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc

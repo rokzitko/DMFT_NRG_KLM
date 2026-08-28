@@ -52,7 +52,7 @@ unlink($reFtmp, $imFtmp);
 
 # F_local(z) = integral dE E rho(E)/(z-E). Without -G, hilb stores both
 # F_local and G_local with the same factor -1/pi, which cancels in their ratio.
-system("hilb", "-v", "-n", "1", "-d", "DOS.dat", "-x", $mu,
+system("hilb", "-v", "-i", "cspline", "-n", "1", "-d", "DOS.dat", "-x", $mu,
        "${prefix}resigma.dat", "${prefix}imsigma.dat", $reFtmp, $imFtmp)
     == 0 or die "hilb failed: $?";
 

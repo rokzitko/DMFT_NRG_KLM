@@ -18,7 +18,7 @@ Requirements:
 - NRG Ljubljana with associated tools (hilb, kk, adapt, nrgchain, broaden, resample, matrix, diag, unitary)
 - associated scripts (getparam, scaley, getiter, newiter, subtracty...), in github repo rokzitko/nrgljubljana under scripts/.
 - perl
-- Python (for occupancy_control)
+- Python 3 (for table generation and support scripts)
 - m4 macro processor
 - bubble (optional)
 
@@ -271,14 +271,10 @@ It is zero on a freshly generated mesh but can contain copied hybridization
 values after a restart.  Most other numerical tables are whitespace-separated
 and have no header.
 
-`DOS.dat` and `PHI.dat` are intended to be strictly increasing, real,
-two-column tables.  The currently generated tables contain a
-Mathematica-format complex roundoff residue in the row just beyond
-`epsilon = 1`.  This row has zero intended physical weight.  The C++ stream
-reader in `bubble` 1.5 stops at this non-C++ numeric token, silently ignores the
-remaining zero-padding rows, and uses this row as the effective upper table
-endpoint.  No nonzero support is lost, but regenerated tables should clamp such
-endpoint roundoff to a real zero.
+`DOS.dat` and `PHI.dat` are strictly increasing, real, two-column tables.
+The Python generators use an integer-indexed mesh and write exact decimal
+band-edge points.  Values at and beyond `|epsilon| = 1` are clamped to real
+zero, avoiding non-C++ numeric tokens caused by complex roundoff.
 
 ## Bethe transport function
 
