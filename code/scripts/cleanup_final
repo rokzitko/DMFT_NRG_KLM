@@ -11,32 +11,43 @@ archive=scripts.tar.gz
 manifest=scripts.sha256
 archive_tmp="${archive}.tmp"
 manifest_tmp="${manifest}.tmp"
-trap 'rm -f -- "$archive_tmp" "$manifest_tmp"' EXIT
+trap 'rm -f "$archive_tmp" "$manifest_tmp"' EXIT
+
+if command -v sha256sum >/dev/null 2>&1; then
+  hash_file() { sha256sum "$1"; }
+  check_manifest() { sha256sum -c "$1"; }
+elif command -v shasum >/dev/null 2>&1; then
+  hash_file() { shasum -a 256 "$1"; }
+  check_manifest() { shasum -a 256 -c "$1"; }
+else
+  echo "Neither sha256sum nor shasum is available." >&2
+  exit 1
+fi
 
 (
   cd scripts
-  find . -type f -print0 |
-    LC_ALL=C sort -z |
-    while IFS= read -r -d '' file; do
-      sha256sum "$file"
+  find . -type f -print |
+    LC_ALL=C sort |
+    while IFS= read -r file; do
+      hash_file "$file"
     done
 ) >"$manifest_tmp"
 
 (
   cd scripts
-  sha256sum -c "../$manifest_tmp" >/dev/null
+  check_manifest "../$manifest_tmp" >/dev/null
 )
 
 tar -czf "$archive_tmp" scripts/
 tar -tzf "$archive_tmp" >/dev/null
-mv -f -- "$archive_tmp" "$archive"
-mv -f -- "$manifest_tmp" "$manifest"
+mv -f "$archive_tmp" "$archive"
+mv -f "$manifest_tmp" "$manifest"
 
 # Remove the templates (output files), but keep the model definition!
 make -C template clean
 
 # Detailed output
-rm -rf dmft/ res/
+rm -rf dmft/ res/ res.init/
 
 # Misc files that we don't really need
 rm -f README.md

@@ -7,7 +7,10 @@ use warnings;
 
 my $kkexe = "kk";
 
-chdir "res" or die;
+my $outdir = @ARGV ? shift @ARGV : "res";
+@ARGV and die "Usage: $0 [outdir]\n";
+
+chdir $outdir or die;
 
 my @l = qw( c-imF c-imG c-imI );
 

@@ -4,6 +4,10 @@
 use strict;
 use warnings;
 
+$ENV{DMFT_MU_FILE} = "param.mu.used"
+    if (!defined($ENV{DMFT_MU_FILE}) || $ENV{DMFT_MU_FILE} eq "")
+    && -s "param.mu.used";
+
 if (-x "scripts/bbl") {
     system("scripts/bbl") == 0 or die;
 }

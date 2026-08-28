@@ -5,8 +5,11 @@ chomp(my $T = `getparam T param.loop`);
 ($? == 0) or die;
 
 # Chemical potential
-chomp(my $mu = `cat param.mu`);
-($? == 0) or die;
+my $mu_file = defined($ENV{DMFT_MU_FILE}) && length($ENV{DMFT_MU_FILE})
+    ? $ENV{DMFT_MU_FILE} : (-s "param.mu.used" ? "param.mu.used" : "param.mu");
+open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
+chomp(my $mu = <$mu_fh>);
+close($mu_fh);
 
 my $param = "-E -c 30 -a 1e-7 -r 1e-6 -i 3 -k 5";
 

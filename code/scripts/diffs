@@ -4,16 +4,35 @@
 
 use strict;
 use warnings;
+use Getopt::Long qw(GetOptions);
+use File::Spec;
 
-my $iter = `getiter`;
+my ($iter, $current, $previous, $local, $mesh, $output_dir);
+$current = "imaw.dat";
+$previous = "imaw.dat.prev";
+$local = "res/c-self.dat";
+$mesh = "mesh.dat";
+$output_dir = ".";
+GetOptions(
+    "iteration=i" => \$iter,
+    "current=s" => \$current,
+    "previous=s" => \$previous,
+    "local=s" => \$local,
+    "mesh=s" => \$mesh,
+    "output-dir=s" => \$output_dir,
+) or die "Invalid arguments.\n";
 
-diff("imaw.dat", "imaw.dat.prev",   "DIFFS_C");      ### IMPORTANT: use imaw here !!
-diff("imaw.dat", "res/c-self.dat", "DIFFS_LatLoc"); ### Lattice vs local spectral function
+if (!defined $iter) {
+    chomp($iter = `getiter`);
+}
+$iter =~ /\A\d+\z/ && $iter >= 1 or die "Invalid iteration: $iter\n";
+-d $output_dir or die "Output directory not found: $output_dir\n";
+
+diff($current, $previous, File::Spec->catfile($output_dir, "DIFFS_C"));
+diff($current, $local, File::Spec->catfile($output_dir, "DIFFS_LatLoc"));
 
 sub diff {
  return if ($iter == 1);
- my $previous = $iter-1;
-
  my $fn1 = shift;
  my $fn2 = shift;
 
@@ -23,10 +42,14 @@ sub diff {
  my $output = shift;
 
  # Support for adaptive mesh
- system("resample $fn1 mesh.dat $fn1.tmp") == 0 or die "resample failed: $?";
- system("resample $fn2 mesh.dat $fn2.tmp") == 0 or die "resample failed: $?";
+  my $tmp1 = File::Spec->catfile($output_dir, ".diff-1.tmp");
+  my $tmp2 = File::Spec->catfile($output_dir, ".diff-2.tmp");
+  unlink($tmp1, $tmp2);
+  system("resample", $fn1, $mesh, $tmp1) == 0 or die "resample failed: $?";
+  system("resample", $fn2, $mesh, $tmp2) == 0 or die "resample failed: $?";
 
- chomp(my $diff = `subtracty $fn1.tmp $fn2.tmp | integrateabs`);
+  my $diff = pipeline_output($tmp1, $tmp2, "integrateabs");
+  chomp($diff);
  print "diff($fn1 - $fn2)=$diff\n";
  $diff ne "" or die "Calculation of diff failed.";
  $diff != 0 or die "Difference is exactly zero. This is very suspicious. Stopping";
@@ -34,12 +57,39 @@ sub diff {
  # NOTE: This is simply an integral of A(w) from -inf to 0, so it only corresponds to occupancy
  # in the zero-temperature case. This value is reported for debugging purposes, it is not used
  # otherwise.
- chomp(my $occupancydiff = `subtracty $fn1.tmp $fn2.tmp | integratenegabs`);
+  my $occupancydiff = pipeline_output($tmp1, $tmp2, "integratenegabs");
+  chomp($occupancydiff);
  print "occupancy diff=$occupancydiff\n";
 
- unlink("$fn1.tmp", "$fn2.tmp");
+  unlink($tmp1, $tmp2);
 
- open(OUT, ">>$output") or die "Can't append to $output: $!. Stopped";
- print OUT "$iter $diff\n";
- close OUT;
+  my @old;
+  if (-e $output) {
+      open(my $in, "<", $output) or die "Can't read $output: $!. Stopped";
+      @old = grep { (split)[0] ne "$iter" } <$in>;
+      close($in);
+  }
+  open(my $out, ">", $output) or die "Can't write $output: $!. Stopped";
+  print $out @old;
+  print $out "$iter $diff\n";
+  close($out) or die "Can't close $output: $!. Stopped";
+}
+
+sub pipeline_output {
+  my ($first, $second, $integrator) = @_;
+  my $command = "set -o pipefail; subtracty " . shell_quote($first) . " " .
+      shell_quote($second) . " | $integrator";
+  open(my $fh, "-|", "bash", "-c", $command)
+      or die "Can't run difference pipeline: $!";
+  local $/;
+  my $output = <$fh>;
+  close($fh) or die "Difference pipeline failed: $?";
+  defined($output) or die "Difference pipeline produced no output";
+  return $output;
+}
+
+sub shell_quote {
+  my ($value) = @_;
+  $value =~ s/'/'"'"'/g;
+  return "'$value'";
 }

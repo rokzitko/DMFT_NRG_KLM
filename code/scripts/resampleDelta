@@ -4,29 +4,68 @@
 
 use strict;
 use warnings;
+use File::Copy qw(copy);
 
 my $allowextrapolation = 0;
 
--s "ReDelta.dat" && -s "ImDelta.dat" or die;
+my $refile = @ARGV ? shift @ARGV : "ReDelta.dat";
+my $imfile = @ARGV ? shift @ARGV : "ImDelta.dat";
+my $meshfile = @ARGV ? shift @ARGV : "mesh.dat";
+@ARGV and die "Usage: $0 [ReDelta [ImDelta [mesh]]]\n";
 
-system("scripts/init_mesh >mesh-new.dat") == 0 or die "init_mesh failed: $?";
-system("cp ReDelta.dat mesh-old.dat") == 0 or die;
-system("mesh_union mesh-new.dat mesh-old.dat >mesh.dat 2>log.resample") ==  0 or die;
+my $renew = "$refile.resampled";
+my $imnew = "$imfile.resampled";
+my $meshnew = "$meshfile.new";
+my $meshbase = "$meshfile.base";
+my $meshold = "$meshfile.old";
+my $ready = "$meshfile.resample-ready";
 
-system("wc -l mesh*.dat");
+if (-s $ready && -s $renew && -s $imnew && -s $meshnew) {
+    publish_resampled($renew, $imnew, $meshnew, $refile, $imfile, $meshfile);
+    unlink($renew, $imnew, $meshnew, $meshbase, $meshold, $ready);
+    print "Recovered interrupted resampleDelta publication.\n";
+    exit 0;
+}
+unlink($renew, $imnew, $meshnew, $meshbase, $meshold, $ready);
+
+-s $refile && -s $imfile or die;
+
+system("scripts/init_mesh >" . shell_quote($meshbase)) == 0 or die "init_mesh failed: $?";
+copy($refile, $meshold) or die "Can't copy $refile to $meshold: $!";
+system(
+    "mesh_union " . shell_quote($meshbase) . " " . shell_quote($meshold) .
+    " >" . shell_quote($meshnew) . " 2>log.resample"
+) == 0 or die;
+-s $meshnew or die "Failed to generate $meshnew";
 
 # Resampling
-system("mv ReDelta.dat ReDelta.dat.INIT") == 0 or die;
-system("mv ImDelta.dat ImDelta.dat.INIT") == 0 or die;
-my $args = $allowextrapolation ? "-e" : "";
-system("resample $args ReDelta.dat.INIT mesh.dat ReDelta.dat") == 0 or die;
-system("resample $args ImDelta.dat.INIT mesh.dat ImDelta.dat") == 0 or die;
+my @resample_args = $allowextrapolation ? ("-e") : ();
+system("resample", @resample_args, $refile, $meshnew, $renew) == 0 or die;
+system("resample", @resample_args, $imfile, $meshnew, $imnew) == 0 or die;
+-s $renew && -s $imnew or die "resampleDelta failed";
+write_text($ready, "ready\n");
 
-unlink("ReDelta.dat.INIT");
-unlink("ImDelta.dat.INIT");
-unlink("mesh-new.dat");
-unlink("mesh-old.dat");
-
--s "ReDelta.dat" && -s "ImDelta.dat" or die "resampleDelta failed";
+publish_resampled($renew, $imnew, $meshnew, $refile, $imfile, $meshfile);
+unlink($renew, $imnew, $meshnew, $meshbase, $meshold, $ready);
 
 print "resampleDelta done.\n";
+
+sub publish_resampled {
+    my ($newre, $newim, $newmesh, $re, $im, $mesh) = @_;
+    copy($newre, $re) or die "Can't replace $re: $!";
+    copy($newim, $im) or die "Can't replace $im: $!";
+    copy($newmesh, $mesh) or die "Can't replace $mesh: $!";
+}
+
+sub write_text {
+    my ($file, $text) = @_;
+    open(my $fh, ">", $file) or die "Can't write $file: $!";
+    print $fh $text or die "Can't write $file: $!";
+    close($fh) or die "Can't close $file: $!";
+}
+
+sub shell_quote {
+    my ($value) = @_;
+    $value =~ s/'/'"'"'/g;
+    return "'$value'";
+}

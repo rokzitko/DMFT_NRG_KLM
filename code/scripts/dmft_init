@@ -4,45 +4,90 @@
 
 use strict;
 use warnings;
+use File::Copy qw(copy);
+use File::Path qw(remove_tree);
 
 if (!-d "dmft") {
   mkdir "dmft" or die "Can't create subdir dmft, stopped";
 }
 
-if (!-d "res") {
-    mkdir "res" or die "Can't create subdir res, stopped";
+-s "param.mu" or -s "param.mu.next"
+    or die "Chemical potential param.mu not found.";
+-s "param.loop" or die "Parameter file param.loop not found.";
+
+if (-s "res.init/READY"
+    && -s "res.init/ReDelta.next.dat" && -s "res.init/ImDelta.next.dat") {
+    copy("res.init/ReDelta.next.dat", "ReDelta.next.dat")
+        or die "Can't recover initial ReDelta: $!";
+    copy("res.init/ImDelta.next.dat", "ImDelta.next.dat")
+        or die "Can't recover initial ImDelta: $!";
 }
 
--s "param.mu" or die "Chemical potential param.mu not found.";
--s "param.loop" or die "Parameter file param.loop not found.";
+system("scripts/next_aliases") == 0 or die "Preparing next-input aliases failed: $?";
+-s "param.mu.next" or die "Chemical potential param.mu.next not found.";
+
+my $recovered_resample = 0;
+if (-s "mesh.next.dat.resample-ready") {
+    system("scripts/resampleDelta", "ReDelta.next.dat", "ImDelta.next.dat", "mesh.next.dat") == 0
+        or die "Recovering interrupted Delta remeshing failed: $?";
+    $recovered_resample = 1;
+}
 
 my $resample = "true";
 
-if (-s "ReDelta.dat" && -s "ImDelta.dat") {
+if (-s "ReDelta.next.dat" && -s "ImDelta.next.dat") {
     # Preexisting initial approximation for hybridization function Delta(z)
-    if ($resample) {
-        system("scripts/resampleDelta") == 0 or die;
+    if ($resample && !$recovered_resample) {
+        system("scripts/resampleDelta", "ReDelta.next.dat", "ImDelta.next.dat", "mesh.next.dat") == 0 or die;
     } else {
-        if (!-s "mesh.dat") {
+        if (!-s "mesh.next.dat") {
             # Ensure mesh.dat is consistent with the mesh used in *DeltaFirst.dat
-            system("cp ReDelta.dat mesh.dat") == 0 or die;
+            system("cp", "ReDelta.next.dat", "mesh.next.dat") == 0 or die;
         }
     }
-  } else {
-    if (!-s "mesh.dat") {
+} elsif (!-e "ReDelta.next.dat" && !-e "ImDelta.next.dat") {
+    my $initdir = "res.init";
+    if (-e $initdir) {
+        my $cleanup_errors;
+        remove_tree($initdir, {error => \$cleanup_errors});
+        $cleanup_errors //= [];
+        @$cleanup_errors and die "Failed to clean stale $initdir/.\n";
+    }
+    mkdir $initdir or die "Can't create temporary subdir $initdir, stopped";
+    if (!-s "mesh.next.dat") {
       # If the mesh is not predefined, generate it using settings from param.loop
-      system("scripts/init_mesh >mesh.dat") == 0 or die "init_mesh failed: $?";
+      system("scripts/init_mesh >mesh.next.dat") == 0 or die "init_mesh failed: $?";
     }
     # Generate imsigma.dat, resigma.dat
-    system("scripts/init_Sigma") == 0 or die;
+    system("scripts/init_Sigma", $initdir, "mesh.next.dat") == 0 or die;
     # Generate lattice Green's function approx, reaw.dat, imaw.dat
-    system("scripts/bandDOS") == 0 or die;
+    system("scripts/bandDOS", $initdir, "param.mu.next") == 0 or die;
     # Generate hybridization function, ReDelta.dat, ImDelta.dat
-    system("scripts/dmftDOS") == 0 or die;
+    system(
+        "scripts/dmftDOS", $initdir, "param.mu.next",
+        "$initdir/ReDelta.next.dat", "$initdir/ImDelta.next.dat",
+    ) == 0 or die;
+    write_text("$initdir/READY", "ready\n");
+    copy("$initdir/ReDelta.next.dat", "ReDelta.next.dat") or die "Can't publish initial ReDelta: $!";
+    copy("$initdir/ImDelta.next.dat", "ImDelta.next.dat") or die "Can't publish initial ImDelta: $!";
+    my $errors;
+    remove_tree($initdir, {error => \$errors});
+    $errors //= [];
+    @$errors and die "Failed to remove initialization staging directory $initdir/.\n";
+} else {
+    die "ReDelta.next.dat and ImDelta.next.dat must either both exist or both be absent.\n";
 }
 
--s "ReDelta.dat" or die;
--s "ImDelta.dat" or die;
+-s "ReDelta.next.dat" or die;
+-s "ImDelta.next.dat" or die;
+-s "mesh.next.dat" or die;
+if (-d "res.init") {
+    my $errors;
+    remove_tree("res.init", {error => \$errors});
+    $errors //= [];
+    @$errors and die "Failed to remove res.init/.\n";
+}
+system("scripts/next_aliases") == 0 or die "Preparing next-input aliases failed: $?";
 
 sub read_number {
     my ($file) = @_;
@@ -52,4 +97,11 @@ sub read_number {
     $s =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
         or die "Invalid numeric value in '$file': '$s'";
     return 0 + $s;
+}
+
+sub write_text {
+    my ($file, $text) = @_;
+    open(my $fh, ">", $file) or die "Can't write $file: $!";
+    print $fh $text or die "Can't write $file: $!";
+    close($fh) or die "Can't close $file: $!";
 }

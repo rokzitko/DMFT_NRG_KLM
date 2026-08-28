@@ -1,0 +1,112 @@
+#!/usr/bin/env perl
+# Move the last persistent res/ batch produced by older versions to root.
+
+use strict;
+use warnings;
+use File::Compare qw(compare);
+use File::Copy qw(copy);
+use File::Path qw(remove_tree);
+
+-d "res" or die "Legacy result directory res/ not found.\n";
+!-e "res/READY" && !-e "res/READY.complete"
+    or die "res/ is a new staged transaction, not a legacy result directory.\n";
+if (-s "res/MIGRATED") {
+    remove_migrated_res();
+    exit 0;
+}
+-s "res/c-imG.dat" && -s "res/ReDelta.dat" && -s "res/ImDelta.dat"
+    or die "res/ does not contain a recognizable legacy result batch.\n";
+
+my $used_mu;
+if (-s "res/param.mu") {
+    $used_mu = read_first_field("res/param.mu", 0);
+} elsif (-s "occupancy.log") {
+    $used_mu = read_first_field("occupancy.log", 1);
+}
+defined($used_mu)
+    or die "Legacy res/ has no used chemical potential; preserving it for manual recovery.\n";
+
+my %required = (
+    "res/ReDelta.dat" => "ReDelta.used.dat",
+    "res/ImDelta.dat" => "ImDelta.used.dat",
+    "res/c-imG.dat" => "c-imG.dat",
+    "res/c-imF.dat" => "c-imF.dat",
+    "res/c-imI.dat" => "c-imI.dat",
+    "res/c-reG.dat" => "c-reG.dat",
+    "res/c-reF.dat" => "c-reF.dat",
+    "res/c-reI.dat" => "c-reI.dat",
+    "res/c-self.dat" => "self.dat",
+    "res/imsigma.dat" => "imsigma.dat",
+    "res/resigma.dat" => "resigma.dat",
+    "res/imaw.dat" => "imaw.dat",
+    "res/reaw.dat" => "reaw.dat",
+);
+
+for my $source (sort keys %required) {
+    -s $source or die "Legacy result is incomplete: $source is missing.\n";
+    copy($source, $required{$source})
+        or die "Can't migrate $source to $required{$source}: $!\n";
+}
+
+write_text("param.mu.used", "$used_mu\n");
+copy("res/ReDelta.dat", "mesh.used.dat")
+    or die "Can't create mesh.used.dat: $!";
+derive_delta("res/ImDelta.dat", "Delta.used.dat");
+
+for my $source (sort keys %required) {
+    compare($source, $required{$source}) == 0
+        or die "Migrated file differs from $source: $required{$source}\n";
+}
+write_text("res/MIGRATED", "complete\n");
+remove_migrated_res();
+print "Migrated legacy res/ results to the main directory.\n";
+
+sub read_first_field {
+    my ($file, $last_line) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!";
+    my @lines = grep { /\S/ } <$fh>;
+    close($fh);
+    @lines or return;
+    my $line = $last_line ? $lines[-1] : $lines[0];
+    my ($value) = split(" ", $line);
+    return $value;
+}
+
+sub derive_delta {
+    my ($input, $output) = @_;
+    open(my $in, "<", $input) or die "Can't read $input: $!";
+    open(my $out, ">", $output) or die "Can't write $output: $!";
+    while (<$in>) {
+        my ($omega, $im) = split;
+        defined($omega) && defined($im) or die "Invalid row in $input\n";
+        print $out "$omega " . (-$im) . "\n";
+    }
+    close($in);
+    close($out) or die "Can't close $output: $!";
+}
+
+sub write_text {
+    my ($file, $text) = @_;
+    open(my $fh, ">", $file) or die "Can't write $file: $!";
+    print $fh $text or die "Can't write $file: $!";
+    close($fh) or die "Can't close $file: $!";
+}
+
+sub remove_migrated_res {
+    opendir(my $dh, "res") or die "Can't inspect res/: $!";
+    my @entries = grep { $_ ne "." && $_ ne ".." && $_ ne "MIGRATED" } readdir($dh);
+    closedir($dh);
+    for my $entry (@entries) {
+        my $path = "res/$entry";
+        if (-d $path && !-l $path) {
+            my $errors;
+            remove_tree($path, {error => \$errors});
+            $errors //= [];
+            @$errors and die "Failed to remove $path.\n";
+        } else {
+            unlink($path) or die "Can't remove $path: $!";
+        }
+    }
+    unlink("res/MIGRATED") if -e "res/MIGRATED";
+    rmdir("res") or die "Can't remove migrated res/: $!";
+}

@@ -234,19 +234,39 @@ already been multiplied by `-1/pi`.  The distinction is important.
 |---|---|
 | `DOS.dat` | Bare `rho_0(epsilon)`, normalized per spin |
 | `PHI.dat` | Code-normalized transport function `Phi(epsilon)` |
-| `res/c-imG.dat`, `imaw.dat` | `-Im G^R/pi = A`, not `Im G^R` |
-| `res/c-reG.dat`, `reaw.dat` | `-Re G^R/pi`, not `Re G^R` |
-| `res/c-imF.dat`, `res/c-imI.dat` | `-Im F^R/pi`, `-Im I^R/pi` |
-| `res/c-reF.dat`, `res/c-reI.dat` | `-Re F^R/pi`, `-Re I^R/pi` |
+| `c-imG.dat`, `imaw.dat` | `-Im G^R/pi = A`, not `Im G^R` |
+| `c-reG.dat`, `reaw.dat` | `-Re G^R/pi`, not `Re G^R` |
+| `c-imF.dat`, `c-imI.dat` | `-Im F^R/pi`, `-Im I^R/pi` |
+| `c-reF.dat`, `c-reI.dat` | `-Re F^R/pi`, `-Re I^R/pi` |
 | `imsigma.dat`, `resigma.dat` | Actual `Im Sigma^R`, `Re Sigma^R` |
-| `ImDelta.dat`, `ReDelta.dat` | Actual `Im Delta^R`, `Re Delta^R` |
-| `Delta.dat` | `Gamma=-Im Delta^R >= 0`, used as NRG input |
-| `self.dat`, `res/c-self.dat` | Reconstructed impurity spectral function, not the self-energy |
+| `ImDelta.used.dat`, `ReDelta.used.dat` | Delta used to compute the current result files |
+| `ImDelta.next.dat`, `ReDelta.next.dat` | Delta prepared for the next DMFT cycle |
+| `Delta.used.dat`, `Delta.next.dat` | Corresponding `Gamma=-Im Delta^R >= 0` NRG inputs |
+| `self.dat` | Reconstructed impurity spectral function, not the self-energy |
 | `dos.dat` | Interacting local DOS written by `bubble`; distinct from uppercase `DOS.dat` |
 | `cond.opt-PHI.dat` | `Omega`, `sigma_code(Omega)` |
 | `ekin.dat` | Spin-summed kinetic-energy scalar |
 
-`mesh.dat` has two columns for compatibility, but its second column is ignored.
+`param.mu.used` and `mesh.used.dat` belong to the current result batch, while
+`param.mu.next` and `mesh.next.dat` are inputs for the next cycle. The legacy
+names `ReDelta.dat`, `ImDelta.dat`, `Delta.dat`, `param.mu`, and `mesh.dat` are
+compatibility symlinks to their respective next-cycle files. `res/` exists only
+while a completed cycle is being staged and is removed after successful
+publication.
+
+Mesh files have two columns for compatibility, but their second column is ignored.
+
+`dmft_done` writes `res/READY` only after the completed result batch and the
+next-cycle inputs have been validated. Publication is deliberately repeatable:
+the root files are recopied, then `ITER` and `CONVERGED`/`STOP` are written
+last. If publication is interrupted, rerunning `START` or
+`scripts/dmft_done --publish` completes it from `res/`. This is a portable
+recovery protocol rather than a multi-file atomic transaction, and concurrent
+writers in one calculation directory are not supported. It uses ordinary
+relative symlinks and repeatable file copies, without locks or Linux-specific
+filesystem operations. A persistent `res/`
+directory made by an older version is migrated automatically on the next
+`START`.
 It is zero on a freshly generated mesh but can contain copied hybridization
 values after a restart.  Most other numerical tables are whitespace-separated
 and have no header.

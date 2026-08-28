@@ -13,7 +13,6 @@ import numpy as np
 
 W0 = 0.01
 PARAM_FILE = "param.loop"
-HISTORY_DIR = Path("dmft")
 
 
 class BroydenError(RuntimeError):
@@ -162,6 +161,9 @@ def write_table(path, mesh, values):
 
 
 def write_scalar(path, value):
+    if path.is_symlink():
+        target = os.readlink(path)
+        path = path.parent / target
     temporary = path.with_name(f".{path.name}.tmp")
     try:
         temporary.write_text(f"{value:.17g}\n", encoding="ascii")
@@ -171,52 +173,59 @@ def write_scalar(path, value):
         raise BroydenError(f"Failed to write {path}: {exc}") from exc
 
 
-def input_re_path(iteration):
-    return HISTORY_DIR / f"{iteration}-ReDelta.dat"
+def input_re_path(history_dir, iteration):
+    return history_dir / f"{iteration}-ReDelta.dat"
 
 
-def input_im_path(iteration):
-    return HISTORY_DIR / f"{iteration}-ImDelta.dat"
+def input_im_path(history_dir, iteration):
+    return history_dir / f"{iteration}-ImDelta.dat"
 
 
-def input_mu_path(iteration):
-    return HISTORY_DIR / f"{iteration}-param.mu"
+def input_mu_path(history_dir, iteration):
+    return history_dir / f"{iteration}-param.mu"
 
 
-def raw_re_path(iteration):
-    return HISTORY_DIR / f"{iteration}-ReDelta.raw.dat"
+def raw_re_path(history_dir, iteration):
+    return history_dir / f"{iteration}-ReDelta.raw.dat"
 
 
-def raw_im_path(iteration):
-    return HISTORY_DIR / f"{iteration}-ImDelta.raw.dat"
+def raw_im_path(history_dir, iteration):
+    return history_dir / f"{iteration}-ImDelta.raw.dat"
 
 
-def occupancy_path(iteration):
-    return HISTORY_DIR / f"{iteration}-mu-occup.dat"
+def occupancy_path(history_dir, iteration):
+    return history_dir / f"{iteration}-mu-occup.dat"
 
 
-def required_history_paths(iteration, mix_delta, control_mu):
+def required_history_paths(history_dir, iteration, mix_delta, control_mu):
     paths = []
     if mix_delta:
         paths.extend(
             (
-                input_re_path(iteration),
-                input_im_path(iteration),
-                raw_re_path(iteration),
-                raw_im_path(iteration),
+                input_re_path(history_dir, iteration),
+                input_im_path(history_dir, iteration),
+                raw_re_path(history_dir, iteration),
+                raw_im_path(history_dir, iteration),
             )
         )
     if control_mu:
-        paths.extend((input_mu_path(iteration), occupancy_path(iteration)))
+        paths.extend(
+            (
+                input_mu_path(history_dir, iteration),
+                occupancy_path(history_dir, iteration),
+            )
+        )
     return paths
 
 
-def history_indices(iteration, mix_delta, control_mu, maximum):
+def history_indices(history_dir, iteration, mix_delta, control_mu, maximum):
     indices = []
     for candidate in range(iteration, 0, -1):
         missing = [
             path
-            for path in required_history_paths(candidate, mix_delta, control_mu)
+            for path in required_history_paths(
+                history_dir, candidate, mix_delta, control_mu
+            )
             if not path.is_file() or path.stat().st_size == 0
         ]
         if missing:
@@ -232,7 +241,7 @@ def history_indices(iteration, mix_delta, control_mu, maximum):
     return indices
 
 
-def build_history(indices, mesh, mix_delta, control_mu, goal):
+def build_history(history_dir, indices, mesh, mix_delta, control_mu, goal):
     inputs = []
     residuals = []
     current_occupancy = None
@@ -242,16 +251,18 @@ def build_history(indices, mesh, mix_delta, control_mu, goal):
         residual_parts = []
 
         if mix_delta:
-            input_re = interpolate(input_re_path(iteration), mesh)
-            input_im = interpolate(input_im_path(iteration), mesh)
-            output_re = interpolate(raw_re_path(iteration), mesh)
-            output_im = interpolate(raw_im_path(iteration), mesh)
+            input_re = interpolate(input_re_path(history_dir, iteration), mesh)
+            input_im = interpolate(input_im_path(history_dir, iteration), mesh)
+            output_re = interpolate(raw_re_path(history_dir, iteration), mesh)
+            output_im = interpolate(raw_im_path(history_dir, iteration), mesh)
             input_parts.extend((input_re, input_im))
             residual_parts.extend((output_re - input_re, output_im - input_im))
 
         if control_mu:
-            input_mu = load_scalar(input_mu_path(iteration))
-            recorded_mu, occupancy = load_mu_occupancy(occupancy_path(iteration))
+            input_mu = load_scalar(input_mu_path(history_dir, iteration))
+            recorded_mu, occupancy = load_mu_occupancy(
+                occupancy_path(history_dir, iteration)
+            )
             if not np.isclose(input_mu, recorded_mu, rtol=1e-11, atol=1e-13):
                 raise BroydenError(
                     f"Chemical potential mismatch in iteration {iteration}: "
@@ -317,6 +328,41 @@ def parse_arguments():
     )
     parser.add_argument("--delta", action="store_true", help="mix ReDelta and ImDelta")
     parser.add_argument("--mu", action="store_true", help="control param.mu")
+    parser.add_argument(
+        "--workdir",
+        type=Path,
+        default=Path("."),
+        help="directory containing current Delta files (default: .)",
+    )
+    parser.add_argument(
+        "--iteration",
+        type=int,
+        help="DMFT iteration number (default: getiter output)",
+    )
+    parser.add_argument(
+        "--mu-input",
+        type=Path,
+        default=Path("param.mu"),
+        help="current chemical-potential file (default: param.mu)",
+    )
+    parser.add_argument(
+        "--mu-output",
+        type=Path,
+        default=Path("param.mu"),
+        help="next chemical-potential file (default: param.mu)",
+    )
+    parser.add_argument(
+        "--history-dir",
+        type=Path,
+        default=Path("dmft"),
+        help="Broyden history directory (default: dmft)",
+    )
+    parser.add_argument(
+        "--log",
+        type=Path,
+        default=Path("occupancy.log"),
+        help="occupancy update log (default: occupancy.log)",
+    )
     arguments = parser.parse_args()
     if not arguments.delta and not arguments.mu:
         parser.error("at least one of --delta or --mu is required")
@@ -325,13 +371,18 @@ def parse_arguments():
 
 def main():
     arguments = parse_arguments()
-    if not HISTORY_DIR.is_dir():
-        raise BroydenError("dmft/ does not exist; Broyden mixing requires track=true")
+    if not arguments.history_dir.is_dir():
+        raise BroydenError(
+            f"{arguments.history_dir} does not exist or is not a directory; "
+            "Broyden mixing requires track=true"
+        )
 
-    try:
-        iteration = int(command_output(["getiter"]))
-    except ValueError as exc:
-        raise BroydenError("getiter did not return an integer") from exc
+    iteration = arguments.iteration
+    if iteration is None:
+        try:
+            iteration = int(command_output(["getiter"]))
+        except ValueError as exc:
+            raise BroydenError("getiter did not return an integer") from exc
     if iteration < 1:
         raise BroydenError(f"Invalid DMFT iteration {iteration}")
 
@@ -355,14 +406,20 @@ def main():
 
     mesh = None
     if arguments.delta:
-        raw_re_source = Path("ReDelta.dat.NEW-common")
-        raw_im_source = Path("ImDelta.dat.NEW-common")
-        atomic_copy(raw_re_source, raw_re_path(iteration))
-        atomic_copy(raw_im_source, raw_im_path(iteration))
-        mesh, _ = load_table(raw_re_path(iteration))
-        im_mesh, _ = load_table(raw_im_path(iteration))
-        old_mesh, _ = load_table(Path("ReDelta.dat.OLD-common"))
-        old_im_mesh, _ = load_table(Path("ImDelta.dat.OLD-common"))
+        raw_re_source = arguments.workdir / "ReDelta.dat.NEW-common"
+        raw_im_source = arguments.workdir / "ImDelta.dat.NEW-common"
+        raw_re_history = raw_re_path(arguments.history_dir, iteration)
+        raw_im_history = raw_im_path(arguments.history_dir, iteration)
+        atomic_copy(raw_re_source, raw_re_history)
+        atomic_copy(raw_im_source, raw_im_history)
+        mesh, _ = load_table(raw_re_history)
+        im_mesh, _ = load_table(raw_im_history)
+        old_mesh, _ = load_table(
+            arguments.workdir / "ReDelta.dat.OLD-common"
+        )
+        old_im_mesh, _ = load_table(
+            arguments.workdir / "ImDelta.dat.OLD-common"
+        )
         if not same_mesh(mesh, im_mesh) or not same_mesh(mesh, old_mesh):
             raise BroydenError("ReDelta/ImDelta OLD/NEW common meshes do not agree")
         if not same_mesh(mesh, old_im_mesh):
@@ -370,10 +427,19 @@ def main():
 
     maximum = get_max_history()
     indices = history_indices(
-        iteration, arguments.delta, arguments.mu, maximum
+        arguments.history_dir,
+        iteration,
+        arguments.delta,
+        arguments.mu,
+        maximum,
     )
     inputs, residuals, current_occupancy = build_history(
-        indices, mesh, arguments.delta, arguments.mu, goal
+        arguments.history_dir,
+        indices,
+        mesh,
+        arguments.delta,
+        arguments.mu,
+        goal,
     )
 
     delta_size = 2 * len(mesh) if arguments.delta else 0
@@ -390,25 +456,37 @@ def main():
         raise BroydenError("Broyden update produced a non-finite value")
 
     if arguments.delta:
-        write_table(Path("ReDelta.dat.TEMP"), mesh, mixed[: len(mesh)])
         write_table(
-            Path("ImDelta.dat.TEMP"), mesh, mixed[len(mesh) : delta_size]
+            arguments.workdir / "ReDelta.dat.TEMP",
+            mesh,
+            mixed[: len(mesh)],
+        )
+        write_table(
+            arguments.workdir / "ImDelta.dat.TEMP",
+            mesh,
+            mixed[len(mesh) : delta_size],
         )
 
     if arguments.mu:
         old_mu = inputs[-1, delta_size]
-        current_mu = load_scalar(Path("param.mu"))
+        current_mu = load_scalar(arguments.mu_input)
         if not np.isclose(old_mu, current_mu, rtol=1e-11, atol=1e-13):
             raise BroydenError(
-                f"param.mu changed after occupancy measurement: {old_mu} != {current_mu}"
+                f"{arguments.mu_input} changed after occupancy measurement: "
+                f"{old_mu} != {current_mu}"
             )
         requested_dx = mixed[delta_size] - old_mu
         dx = float(np.clip(requested_dx, -maxdx, maxdx))
         if dx != requested_dx:
             print(f"Clipping mu step from {requested_dx:.17g} to {dx:.17g}")
         new_mu = old_mu + dx
-        write_scalar(Path("param.mu"), new_mu)
-        with Path("occupancy.log").open("a", encoding="ascii") as output:
+        write_scalar(arguments.mu_output, new_mu)
+        if not arguments.log.parent.is_dir():
+            raise BroydenError(
+                f"Output directory for {arguments.log} does not exist: "
+                f"{arguments.log.parent}"
+            )
+        with arguments.log.open("a", encoding="ascii") as output:
             output.write(
                 f"{old_mu:.17g} {new_mu:.17g} {dx:.17g} "
                 f"{current_occupancy:.17g}\n"

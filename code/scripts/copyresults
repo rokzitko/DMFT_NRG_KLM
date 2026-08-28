@@ -4,9 +4,14 @@
 
 use strict;
 use warnings;
-use File::Copy;
+use File::Copy qw(copy);
 
-my $iter = `getiter`;
+my $stage = @ARGV ? shift @ARGV : "res";
+my $iter = @ARGV ? shift @ARGV : `getiter`;
+@ARGV and die "Usage: $0 [stage_dir [iteration]]\n";
+chomp($iter);
+$iter =~ /\A\d+\z/ && $iter >= 1 or die "Invalid iteration: $iter\n";
+-d $stage or die "Result staging directory not found: $stage\n";
 
 # Broyden mixing requires these per-iteration snapshots, so $track must be 1.
 my $track = 1; # 0=do not store copies in dmft/, 1=track DMFT iteration by storing copies of all results in dmft/.
@@ -14,61 +19,60 @@ my $track = 1; # 0=do not store copies in dmft/, 1=track DMFT iteration by stori
 chomp(my $tr = `getparam track param.loop`);
 $track = (lc($tr) eq "true")  ? 1 : 0;
 
-sub cp {
-    my $fn = shift;
-    if ($track) { copy("res/$fn", "dmft/$iter-$fn")
-      or die "Copying $fn failed: $!, stopped"; }
+sub archive {
+    my ($source, $name) = @_;
+    if ($track) {
+        copy("$stage/$source", "dmft/$iter-$name")
+            or die "Archiving $source failed: $!, stopped";
+    }
 }
 
-sub cp0 {
-    my $fn = shift;
-    if ($track) { copy("$fn", "dmft/$iter-$fn")
-      or warn "Warning: Copying solverlog failed: $!"; }
+sub archive_optional {
+    my ($source, $name) = @_;
+    if ($track && -e $source) {
+        copy($source, "dmft/$iter-$name")
+            or warn "Warning: Archiving $source failed: $!";
+    }
 }
 
-sub cp1 {
-    my $fn = shift;
-    if ($track) { copy("1/$fn", "dmft/$iter-$fn")
-      or warn "Warning: Copying solverlog failed: $!"; }
+sub publish {
+    my ($source, $destination) = @_;
+    copy("$stage/$source", $destination)
+        or die "Publishing $source as $destination failed: $!, stopped";
+    -s $destination or die "Published file is empty: $destination\n";
 }
 
 system("mkdir -p dmft") == 0 or die; # Ensure dmft/ exists.
 
-# Whatever spectral functions we are interested in.
-cp("c-imG.dat");
-cp("c-self.dat");
+archive("c-imG.dat", "c-imG.dat");
+archive("c-self.dat", "c-self.dat");
+archive($_, $_) for qw(imsigma.dat resigma.dat imaw.dat reaw.dat);
+archive("ReDelta.used.dat", "ReDelta.dat");
+archive("ImDelta.used.dat", "ImDelta.dat");
+archive("param.mu.used", "param.mu");
 
-# The following are *required* for the DMFT loop
-cp("imsigma.dat");
-cp("resigma.dat");
-cp("imaw.dat");
-cp("reaw.dat");
-
-# Inputs used by this iteration, required to reconstruct Broyden residuals.
-cp("ReDelta.dat");
-cp("ImDelta.dat");
-cp("param.mu");
-
-# Best-so-far results for post-processing.
-system("cp -v res/imsigma.dat imsigma.dat") == 0 or die;
-system("cp -v res/resigma.dat resigma.dat") == 0 or die;
-if (-s "imaw.dat") {
-    system("cp -v imaw.dat imaw.dat.prev") == 0 or die;
-} # store previous version, for use in script diffs
-system("cp -v res/imaw.dat imaw.dat") == 0 or die;
-system("cp -v res/reaw.dat reaw.dat") == 0 or die;
-system("cp -v res/c-self.dat self.dat") == 0 or die;
+publish($_, $_) for qw(
+    c-imG.dat c-imF.dat c-imI.dat
+    c-reG.dat c-reF.dat c-reI.dat
+    imsigma.dat resigma.dat imaw.dat reaw.dat
+);
+publish("c-self.dat", "self.dat");
+publish($_, $_) for qw(
+    ReDelta.used.dat ImDelta.used.dat Delta.used.dat
+    param.mu.used mesh.used.dat
+);
 
 # NRG iteration logs, etc.
-cp1("custom");
-cp1("log");
-cp1("td");
+archive_optional("1/custom", "custom");
+archive_optional("1/log", "log");
+archive_optional("1/td", "td");
 
 # Expectation values
-cp0("custom");
-cp0("custom.avg");
-cp0("customfdm");
-cp0("customfdm.avg");
+for my $fn (qw(custom custom.avg customfdm customfdm.avg)) {
+    if (-s "$stage/$fn") {
+        publish($fn, $fn);
+        archive($fn, $fn);
+    }
+}
 
-if ($track) { copy("Delta.dat", "dmft/$iter-Delta.dat")
-  or warn "Warning: Copying Delta failed: $!"; }
+archive("Delta.used.dat", "Delta.dat");

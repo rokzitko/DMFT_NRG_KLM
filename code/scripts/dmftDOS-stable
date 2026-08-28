@@ -6,6 +6,12 @@ use strict;
 use warnings;
 use Math::Complex;
 
+my $result_dir = @ARGV ? shift @ARGV : "res";
+my $mu_file = @ARGV ? shift @ARGV : "param.mu";
+my $re_output = @ARGV ? shift @ARGV : "ReDelta.dat";
+my $im_output = @ARGV ? shift @ARGV : "ImDelta.dat";
+@ARGV and die "Usage: $0 [result_dir [mu_file [re_output [im_output]]]]\n";
+
 # Read a column from a file
 sub readcol {
     my ($filename, $column) = @_;
@@ -31,13 +37,17 @@ $imclip ne "" or die;
 $imclip > 0.0 or die;
 
 # Chemical potential
-chomp(my $mu = `cat param.mu`);
+open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
+my $mu = <$mu_fh>;
+close($mu_fh);
+defined $mu or die "Chemical potential not found in $mu_file";
+chomp($mu);
 
 print "dmftDOS-stable - mu=$mu imclip=$imclip\n";
 
-my $prefix = "res/";
-my $reFtmp = "reF.dat.TMP";
-my $imFtmp = "imF.dat.TMP";
+my $prefix = "$result_dir/";
+my $reFtmp = "$result_dir/reF.dat.TMP";
+my $imFtmp = "$result_dir/imF.dat.TMP";
 unlink($reFtmp, $imFtmp);
 
 # F_local(z) = integral dE E rho(E)/(z-E). Without -G, hilb stores both
@@ -57,10 +67,8 @@ scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
 scalar(@omega) == scalar(@imF) or die "ImF mesh mismatch.";
 scalar(@omega) == scalar(@reF) or die "ReF mesh mismatch.";
 
-# Important: this writes ReDelta.dat and ImDelta.dat in the current directory.
-# It does *not* overwrite res/ReDelta.dat and res/ImDelta.dat.
-open(R, ">ReDelta.dat") or die;
-open(I, ">ImDelta.dat") or die;
+open(R, ">", $re_output) or die;
+open(I, ">", $im_output) or die;
 
 my $len = @omega;
 for (my $i = 0; $i < $len; $i++) {

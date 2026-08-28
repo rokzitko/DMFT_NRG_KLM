@@ -1,0 +1,48 @@
+#!/usr/bin/env perl
+# Maintain compatibility aliases for the explicit next-cycle input files.
+
+use strict;
+use warnings;
+use File::Compare qw(compare);
+use File::Copy qw(copy);
+
+my %aliases = (
+    "ReDelta.dat" => "ReDelta.next.dat",
+    "ImDelta.dat" => "ImDelta.next.dat",
+    "Delta.dat"   => "Delta.next.dat",
+    "param.mu"    => "param.mu.next",
+    "mesh.dat"    => "mesh.next.dat",
+);
+
+for my $alias (sort keys %aliases) {
+    my $target = $aliases{$alias};
+
+    if (!-e $target) {
+        if (-l $alias) {
+            die "$alias is a broken symlink; expected target $target\n";
+        }
+        next if !-e $alias;
+        -f $alias or die "$alias is not a regular file and cannot be migrated\n";
+        copy($alias, $target) or die "Can't copy $alias to $target: $!\n";
+        -s $target or die "Migration produced an empty $target\n";
+    }
+
+    next if !-e $target;
+
+    if (-l $alias) {
+        my $actual = readlink($alias);
+        defined($actual) or die "Can't read symlink $alias: $!\n";
+        $actual eq $target
+            or die "$alias points to $actual instead of $target\n";
+        next;
+    }
+
+    if (-e $alias) {
+        -f $alias or die "$alias is not a regular file\n";
+        compare($alias, $target) == 0
+            or die "$alias and $target differ; refusing to discard either file\n";
+        unlink($alias) or die "Can't remove compatibility file $alias: $!\n";
+    }
+
+    symlink($target, $alias) or die "Can't create $alias -> $target: $!\n";
+}

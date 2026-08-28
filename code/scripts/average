@@ -4,9 +4,14 @@
 
 use strict;
 use warnings;
+use File::Copy qw(move);
+use File::Path qw(make_path);
 
-my $outdir = "res";
-system("mkdir -p $outdir") == 0 or die;
+my $outdir = @ARGV ? shift @ARGV : "res";
+my $mesh_file = @ARGV ? shift @ARGV : "mesh.dat";
+@ARGV and die "Usage: $0 [outdir [mesh_file]]\n";
+
+make_path($outdir) unless -d $outdir;
 -d $outdir or die "Failed to create $outdir.";
 
 chomp(my $Nz = `getparam Nz param.loop`);
@@ -20,9 +25,9 @@ print "Nz=$Nz T=$T alpha=$alpha gamma=$gamma\n";
 my $pr = "FDM_dens"; # prefix
 
 # Conduction band
-avg("spec_${pr}_A_d-A_d.bin",       "res/c-imG.dat");
-avg("spec_${pr}_self_d-A_d.bin",    "res/c-imF.dat");
-avg("spec_${pr}_self_d-self_d.bin", "res/c-imI.dat");
+avg("spec_${pr}_A_d-A_d.bin",       "$outdir/c-imG.dat");
+avg("spec_${pr}_self_d-A_d.bin",    "$outdir/c-imF.dat");
+avg("spec_${pr}_self_d-self_d.bin", "$outdir/c-imI.dat");
 
 sub avg
 {
@@ -30,11 +35,15 @@ sub avg
     my $out = shift;
 
     unlink "$out";
-    system("broaden -x $gamma -L mesh.dat   $in $Nz $alpha $T 1e-9") == 0 or die "broaden failed: $?";
     my $specfn = "spec.dat";
+    unlink($specfn) or die "Can't remove stale $specfn: $!" if -e $specfn;
+    system("broaden", "-x", $gamma, "-L", $mesh_file, $in, $Nz, $alpha, $T, "1e-9") == 0
+        or die "broaden failed: $?";
     if (!-e $specfn) {
-       system "echo Failed to produce broadened spectrum $specfn -> $out. >>>ERROR";
+       open(my $error_fh, ">", "ERROR") or die "Can't write ERROR: $!";
+       print $error_fh "Failed to produce broadened spectrum $specfn -> $out.\n";
+       close($error_fh);
        die "broaden failed\n";
     }
-    system("mv $specfn $out") == 0 or die;
+    move($specfn, $out) or die "Can't move $specfn to $out: $!";
 }

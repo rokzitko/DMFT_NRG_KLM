@@ -15,8 +15,11 @@ my $factor = pi**2;
 # pi^2 from the difference between A(w)=-1/Pi Im[..] and a(w)=-Im[..]
 
 # Chemical potential
-my $mu = `cat param.mu`;
-chomp($mu);
+my $mu_file = defined($ENV{DMFT_MU_FILE}) && length($ENV{DMFT_MU_FILE})
+    ? $ENV{DMFT_MU_FILE} : (-s "param.mu.used" ? "param.mu.used" : "param.mu");
+open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
+chomp(my $mu = <$mu_fh>);
+close($mu_fh);
 
 my $fn = "PHI.dat"; # transport function
 my $param = "-E -p $fn -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6"; # numerical integration parameters

@@ -9,7 +9,8 @@ print "T/D=$TD\n";
 $beta = 1/$TD;
 
 # Chemical potential
-my $mu = `cat param.mu`;
+my $mu_file = -s "param.mu.used" ? "param.mu.used" : "param.mu";
+my $mu = `cat $mu_file`;
 chomp($mu);
 
 # epsilon_d

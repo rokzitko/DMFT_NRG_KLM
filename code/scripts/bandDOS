@@ -6,8 +6,20 @@
 
 use strict;
 use warnings;
+use File::Path qw(make_path);
 
-chomp(my $mu = `cat param.mu`);
+my $result_dir = @ARGV ? shift @ARGV : "res";
+my $mu_file = @ARGV ? shift @ARGV : "param.mu";
+@ARGV and die "Usage: $0 [result_dir [mu_file]]\n";
+
+make_path($result_dir) unless -d $result_dir;
+-d $result_dir or die "Failed to create $result_dir.";
+
+open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
+my $mu = <$mu_fh>;
+close($mu_fh);
+defined $mu or die "Chemical potential not found in $mu_file";
+chomp($mu);
 
 # Clipping of Im part of GF; this can happen due to numerical integration for narrow regions of small ImSigma
 chomp(my $imclip = `getparam clipG param.loop`);
@@ -19,9 +31,19 @@ $imclip > 0.0 or die;
 
 print("bandDOS mu=$mu imclip=$imclip\n");
 
-my $fntmp = "imaw.dat.TMP"; # before clipping
+my $fntmp = "$result_dir/imaw.dat.TMP"; # before clipping
 
-system("hilb -v -d DOS.dat -x $mu res/resigma.dat res/imsigma.dat res/reaw.dat $fntmp") == 0 or die "hilb failed: $?";
+system("hilb", "-v", "-d", "DOS.dat", "-x", $mu,
+       "$result_dir/resigma.dat", "$result_dir/imsigma.dat",
+       "$result_dir/reaw.dat", $fntmp) == 0 or die "hilb failed: $?";
 
-system("clipy b $imclip $fntmp >res/imaw.dat") == 0 or die;
+open(my $clip_fh, "-|", "clipy", "b", $imclip, $fntmp)
+    or die "Can't run clipy: $!";
+open(my $imaw_fh, ">", "$result_dir/imaw.dat")
+    or die "Can't open $result_dir/imaw.dat for writing, stopped";
+while (<$clip_fh>) {
+    print {$imaw_fh} $_ or die "Can't write $result_dir/imaw.dat: $!";
+}
+close($clip_fh) or die "clipy failed: $?";
+close($imaw_fh) or die "Can't close $result_dir/imaw.dat: $!";
 unlink($fntmp);

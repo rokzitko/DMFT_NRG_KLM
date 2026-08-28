@@ -8,7 +8,8 @@
 use strict;
 use warnings;
 
-my $file = "ReDelta.dat";
+my $file = @ARGV ? shift @ARGV : "ReDelta.dat";
+@ARGV and die "Usage: $0 [ReDelta]\n";
 -s $file or die;
 
 open my $fh, '<', $file or die "$file: $!";

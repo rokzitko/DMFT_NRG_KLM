@@ -1,18 +1,23 @@
 #!/bin/bash
-# Clean up after the calculation; this removes all output. If command line argument "keep" is used,
-# ImDelta.dat and ReDelta.dat will be retained to enable restarting the calculation (param.mu is never deleted)
+# Clean up after the calculation. With "keep", retain the explicit next-cycle
+# input set and its compatibility symlinks. param.mu.next is never deleted.
 # Rok Zitko, Aug 2026
 
 scripts/cleanup_temp
 
 if [[ "$1" != "keep" ]]; then
-  rm -f ImDelta.dat ReDelta.dat
+  rm -f ImDelta.dat ReDelta.dat Delta.dat mesh.dat
+  rm -f ImDelta.next.dat ReDelta.next.dat Delta.next.dat mesh.next.dat
+  rm -f ReDelta*.resampled ImDelta*.resampled
+  rm -f mesh*.new mesh*.base mesh*.old mesh*.resample-ready
 fi
 
-rm -fr res/ dmft/
+rm -fr res/ res.init/ dmft/
 
 # Dynamical quantities
-rm -f Delta.dat imaw.dat reaw.dat imaw.dat.prev imsigma.dat resigma.dat self.dat
+rm -f imaw.dat reaw.dat imaw.dat.prev imsigma.dat resigma.dat self.dat
+rm -f c-imG.dat c-imF.dat c-imI.dat c-reG.dat c-reF.dat c-reI.dat
+rm -f ImDelta.used.dat ReDelta.used.dat Delta.used.dat mesh.used.dat param.mu.used
 # ReDelta shift
 rm -f param.shift
 # Expectation values
@@ -25,9 +30,8 @@ rm -f broyden.log
 rm -f LL.dat ZT.dat condMIR.dat rhoMIR.dat cond.opt-PHI.dat ekin.dat kappa.dat thermopowerS.dat # transport
 # Band discretization
 rm -f FSOL.dat FSOLNEG.dat
-# Frequency mesh
-rm -f mesh.dat
 # Alt lattice spectral funciton
 rm -f ldos.dat
 # Flag files, loop control
-rm -f CONVERGED STOP ITER DIFFS_C DIFFS_LatLoc
+rm -f CONVERGED STOP ITER DIFFS_C DIFFS_LatLoc ERROR
+rm -f POSTPROCESSING_FAILED NEXT_PREPARATION_FAILED

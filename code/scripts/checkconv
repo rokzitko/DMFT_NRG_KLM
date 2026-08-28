@@ -5,6 +5,15 @@
 
 use strict;
 use warnings;
+use Getopt::Long qw(GetOptions);
+
+my ($iter, $fn, $decision_file);
+$fn = "DIFFS_C";
+GetOptions(
+    "iteration=i" => \$iter,
+    "diffs=s" => \$fn,
+    "decision=s" => \$decision_file,
+) or die "Invalid arguments.\n";
 
 chomp(my $convergencelimit = `getparam conveps param.loop`);
 chomp(my $convwindow = `getparam convwindow param.loop`);
@@ -13,44 +22,54 @@ chomp(my $maxiter = `getparam maxiter param.loop`);
 
 die "Invalid convwindow=$convwindow. Stopped" if $convwindow < 1;
 
-my $iter = `getiter`;
+if (!defined $iter) {
+    chomp($iter = `getiter`);
+}
+$iter =~ /\A\d+\z/ && $iter >= 1 or die "Invalid iteration: $iter\n";
 print "checkconv, iter=$iter miniter=$miniter maxiter=$maxiter convwindow=$convwindow\n";
 
-exit 0 if $iter <= 1;
+my $decision = "continue";
+my $abs;
+if ($iter > 1 && -e $fn) {
+    open(my $fh, "<", $fn) or die "Can't open $fn: $!. Stopped";
+    my @l = <$fh>;
+    close($fh);
 
-my $fn = "DIFFS_C";
-exit 0 if !-e $fn;
+    if (@l >= $convwindow) {
+        my $last = $l[-1];
+        chomp($last);
+        my ($iter2, $diff2) = split(' ', $last, 2);
+        warn "Iteration number and $fn do not agree.\n" if $iter != $iter2;
 
-open(F, "<$fn") or die "Can't open $fn: $!. Stopped";
-my @l = <F>;
-close F;
+        $abs = 0;
+        foreach my $line (@l[-$convwindow .. -1]) {
+            chomp($line);
+            my ($iter3, $diff3) = split(' ', $line, 2);
+            my $a = abs($diff3);
+            $abs = $a if $a > $abs;
+        }
 
-exit 0 if @l < $convwindow;
-
-my $last = $l[-1];
-chomp($last);
-my ($iter2, $diff2) = split(' ', $last, 2);
-if ($iter != $iter2) {
-    warn "Iteration number in ITER and $fn do not agree.\n";
+        if ($abs < $convergencelimit && $iter > $miniter) {
+            print "Convergence achieved! $abs < $convergencelimit\n";
+            $decision = "converged";
+        } else {
+            print "Not converged yet. $abs > $convergencelimit\n";
+            if ($iter > $maxiter) {
+                print "Iteration limit exceeded, maxiter=$maxiter, stopping here.\n";
+                $decision = "stop";
+            }
+        }
+    }
 }
 
-my $abs = 0;
-foreach my $line (@l[-$convwindow .. -1]) {
-    chomp($line);
-    my ($iter3, $diff3) = split(' ', $line, 2);
-    my $a = abs($diff3);
-    $abs = $a if $a > $abs;
-}
-
-if ($abs < $convergencelimit && $iter > $miniter) {
-    print "Convergence achieved! $abs < $convergencelimit\n";
-    system "touch CONVERGED"; # create a flag file
+if (defined $decision_file) {
+    open(my $out, ">", $decision_file) or die "Can't write $decision_file: $!";
+    print $out "$decision\n";
+    close($out) or die "Can't close $decision_file: $!";
+} elsif ($decision eq "converged") {
+    system("touch", "CONVERGED") == 0 or die "Can't create CONVERGED: $?";
     system("scripts/cleanup_temp") == 0 or warn("cleanup_temp failed");
     system("scripts/post") == 0 or warn("Running scripts/post failed");
-} else {
-    print "Not converged yet. $abs > $convergencelimit\n";
-    if ($iter > $maxiter) {
-        print "Iteration limit exceeded, maxiter=$maxiter, stopping here.\n";
-        system "touch STOP";
-    }
+} elsif ($decision eq "stop") {
+    system("touch", "STOP") == 0 or die "Can't create STOP: $?";
 }

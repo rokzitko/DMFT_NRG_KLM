@@ -5,6 +5,11 @@
 
 use strict;
 use warnings;
+use File::Path qw(make_path);
+
+my $result_dir = @ARGV ? shift @ARGV : "res";
+my $mesh_file = @ARGV ? shift @ARGV : "mesh.dat";
+@ARGV and die "Usage: $0 [result_dir [mesh_file]]\n";
 
 my $U = `getparam U1 param.loop`; # Hubbard U
 my $nspin = 0.5; # occupancy per spin, half filling is 0.5
@@ -16,13 +21,14 @@ my $i = -0.0001; # Use some negative value.
 
 print "Initializing from constant self-energy. ReSigma=$r ImSigma=$i\n";
 
--e "mesh.dat" or die "Error - mesh.dat is required to define the frequency mesh.";
+-e $mesh_file or die "Error - $mesh_file is required to define the frequency mesh.";
 
-system("mkdir -p res") == 0 or die;
+make_path($result_dir) unless -d $result_dir;
+-d $result_dir or die "Failed to create $result_dir.";
 
-open(F, "<mesh.dat") or die;
-open(R, ">res/resigma.dat") or die;
-open(I, ">res/imsigma.dat") or die;
+open(F, "<", $mesh_file) or die;
+open(R, ">", "$result_dir/resigma.dat") or die;
+open(I, ">", "$result_dir/imsigma.dat") or die;
 
 while(<F>) {
   my ($x, $y) = split;

@@ -11,11 +11,33 @@ my $local = 1; #0=submit a Slurm job, 1=run locally
 
 -e "DOS.dat" or die "Tabulated density of states DOS.dat must exist.";
 
+if (-e "res/READY" || -e "res/READY.complete") {
+    system("scripts/dmft_done") == 0
+        or die "Recovering staged DMFT results failed: $?";
+    exit 0;
+}
+if (-d "res" && (-s "res/MIGRATED"
+    || (-s "res/c-imG.dat" && -s "res/ReDelta.dat"
+    && !-e "res/ReDelta.used.dat"))) {
+    system("scripts/migrate_legacy_res") == 0
+        or die "Migrating legacy res/ results failed: $?";
+}
+if (-d "res") {
+    opendir(my $res_dh, "res") or die "Can't inspect res/: $!";
+    my @entries = grep { $_ ne "." && $_ ne ".." } readdir($res_dh);
+    closedir($res_dh);
+    rmdir("res") if !@entries;
+}
+-e "res" and die "Incomplete res/ staging directory exists; run scripts/dmft_done to rebuild it.\n";
+-e "CONVERGED" and die "Calculation is already marked CONVERGED.\n";
+-e "STOP" and die "Calculation is already marked STOP.\n";
+
 system("scripts/dmft_init") == 0 or die "dmft_init failed: $?";
 
-system("scaley -1 ImDelta.dat >Delta.dat") == 0 or die;
--s "Delta.dat" or die("Hybridisation function not found, stopped");
-system("scripts/ReDelta_shift") == 0 or die;
+system("scaley -1 ImDelta.next.dat >Delta.next.dat") == 0 or die;
+-s "Delta.next.dat" or die("Hybridisation function not found, stopped");
+system("scripts/next_aliases") == 0 or die "Preparing next-input aliases failed: $?";
+system("scripts/ReDelta_shift", "ReDelta.next.dat") == 0 or die;
 -s "param.shift" or die;
 system("scripts/checkDelta") == 0 or die;
 
@@ -23,7 +45,9 @@ chomp(my $Nz = `getparam Nz param.loop`);
 $Nz >= 1 or die;
 
 # Chemical potential
-chomp(my $mu = `cat param.mu`);
+open(my $mu_fh, "<", "param.mu.next") or die "Can't open param.mu.next: $!";
+chomp(my $mu = <$mu_fh>);
+close($mu_fh);
 
 # Additional energy-level shift
 chomp(my $shift = `cat param.eps`);

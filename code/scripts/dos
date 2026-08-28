@@ -13,8 +13,11 @@ my $fn = "DOS.dat";
 my $param = "-E -p $fn -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6";
 
 # Chemical potential
-chomp(my $mu = `cat param.mu`);
-($? == 0) or die;
+my $mu_file = defined($ENV{DMFT_MU_FILE}) && length($ENV{DMFT_MU_FILE})
+    ? $ENV{DMFT_MU_FILE} : (-s "param.mu.used" ? "param.mu.used" : "param.mu");
+open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
+chomp(my $mu = <$mu_fh>);
+close($mu_fh);
 
 # Compute dos.dat to be compared with imaw.dat
 system("bubble -d -o ldos.dat $param 0 1 0 $T $mu resigma.dat imsigma.dat") == 0 or die;
