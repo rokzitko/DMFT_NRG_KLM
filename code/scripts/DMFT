@@ -35,8 +35,9 @@ print "mu=$mu shift=$shift $epsimp=$epsimp\n";
 system("m4 -DEPS=$epsimp -DZZZ=1 param.loop >param") == 0 or die "m4 failed: $?";
 unlink "FSOL.dat"; # Delete first, avoid check passing with stale data.
 unlink "FSOLNEG.dat";
-system("adapt P >solverlog") == 0 or die "adapt failed: $?";
-system("adapt N >solverlogneg") == 0 or die "adapt failed: $?";
+my $adapt_cfg = "--integral";
+system("adapt $adapt_cfg P >solverlog") == 0 or die "adapt failed: $?";
+system("adapt $adapt_cfg N >solverlogneg") == 0 or die "adapt failed: $?";
 (-s "FSOL.dat" && -s "FSOLNEG.dat") or die "solver failed.\n";
 unlink "param";
 

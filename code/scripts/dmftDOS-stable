@@ -1,0 +1,87 @@
+#!/usr/bin/env perl
+# Calculation of the effective hybridisation function using Delta=F_local/G_local
+# Rok Zitko, rok.zitko@ijs.si, 2026
+
+use strict;
+use warnings;
+use Math::Complex;
+
+# Read a column from a file
+sub readcol {
+    my ($filename, $column) = @_;
+
+    my @l;
+    open(F, "<$filename") or die "Can't open $filename for reading, stopped";
+    while (<F>) {
+        chomp;
+        my $x = (split)[$column-1];
+        push(@l, $x);
+    }
+    close(F);
+
+    @l
+};
+
+# Clipping of Im part of Delta; NRG requires Gamma=-Im(Delta) to be strictly positive.
+chomp(my $imclip = `getparam clipDelta param.loop`);
+if ($imclip eq "") {
+    chomp($imclip = `getparam clip param.loop`); # fall back
+}
+$imclip ne "" or die;
+$imclip > 0.0 or die;
+
+# Chemical potential
+chomp(my $mu = `cat param.mu`);
+
+print "dmftDOS-stable - mu=$mu imclip=$imclip\n";
+
+my $prefix = "res/";
+my $reFtmp = "reF.dat.TMP";
+my $imFtmp = "imF.dat.TMP";
+unlink($reFtmp, $imFtmp);
+
+# F_local(z) = integral dE E rho(E)/(z-E). Without -G, hilb stores both
+# F_local and G_local with the same factor -1/pi, which cancels in their ratio.
+system("hilb", "-v", "-n", "1", "-d", "DOS.dat", "-x", $mu,
+       "${prefix}resigma.dat", "${prefix}imsigma.dat", $reFtmp, $imFtmp)
+    == 0 or die "hilb failed: $?";
+
+my @omega = readcol("${prefix}imaw.dat", 1);
+my @imG =   readcol("${prefix}imaw.dat", 2);
+my @reG =   readcol("${prefix}reaw.dat", 2);
+my @imF =   readcol($imFtmp, 2);
+my @reF =   readcol($reFtmp, 2);
+
+scalar(@omega) == scalar(@imG) or die "ImG mesh mismatch.";
+scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
+scalar(@omega) == scalar(@imF) or die "ImF mesh mismatch.";
+scalar(@omega) == scalar(@reF) or die "ReF mesh mismatch.";
+
+# Important: this writes ReDelta.dat and ImDelta.dat in the current directory.
+# It does *not* overwrite res/ReDelta.dat and res/ImDelta.dat.
+open(R, ">ReDelta.dat") or die;
+open(I, ">ImDelta.dat") or die;
+
+my $len = @omega;
+for (my $i = 0; $i < $len; $i++) {
+    my $o = $omega[$i];
+    my $G = $reG[$i] + i * $imG[$i];
+    my $F = $reF[$i] + i * $imF[$i];
+
+    # Stable hybridisation-function estimator.
+    my $Delta = $F/$G;
+    my $re = Re($Delta);
+    my $im = Im($Delta);
+
+    if ($im > -$imclip) {
+        $im = -$imclip;
+    }
+    $im < 0.0 or die; # contract
+
+    print R "$o $re\n";
+    print I "$o $im\n";
+}
+
+close(R);
+close(I);
+unlink($reFtmp, $imFtmp);

@@ -142,7 +142,7 @@ system("mv ReDelta.dat ReDelta.dat.OLD") == 0 or die; # save the old ones!
 system("mv ImDelta.dat ImDelta.dat.OLD") == 0 or die;
 -s "ReDelta.dat.OLD" or die "Failed to create ReDelta.dat.OLD";
 -s "ImDelta.dat.OLD" or die "Failed to create ImDelta.dat.OLD";
-system("scripts/dmftDOS") == 0 or die "dmftDOS failed: $?"; # This produces new ImDelta.dat, ReDelta.dat
+system("scripts/dmftDOS-stable") == 0 or die "dmftDOS failed: $?"; # This produces new ImDelta.dat, ReDelta.dat
 (-s "ImDelta.dat" && -s "ReDelta.dat") or error("dmftDOS failed, output files not found, stopped");
 system("mv ReDelta.dat ReDelta.dat.NEW") == 0 or die;
 system("mv ImDelta.dat ImDelta.dat.NEW") == 0 or die;

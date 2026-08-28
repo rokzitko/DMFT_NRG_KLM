@@ -58,7 +58,7 @@ opt_ymin=1e-5
 track=false
 
 [param]
-xmax=25
+xmax=30
 adapt=false
 prec=1000
 polarized=false
