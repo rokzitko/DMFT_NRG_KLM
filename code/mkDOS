@@ -2,41 +2,42 @@
 """Generate the normalized semicircular density of states in DOS.dat."""
 
 import math
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
+
+from bethe_tables import bethe_rows, publication_mode
 
 
-INTERPOLATION = "cspline"
-NORMALIZATION_TOLERANCE = 1e-10
+INTERPOLATION = "steffen"
+NORMALIZATION_TOLERANCE = 1e-12
 OUTPUT = Path("DOS.dat")
-SUM_PATTERN = re.compile(
-    r"(?m)^Sum=([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$"
+INTEGRAL_PATTERN = re.compile(
+    r"(?m)^\s*dos\.integral="
+    r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$"
 )
+EXPECTED_ALGORITHM = "algorithm=analytic-piecewise-polynomial"
 
 
-def write_dos(normalization):
-    rows = []
-    for index in range(-1300, 1301):
-        epsilon = index / 1000
-        rho = 0.0
-        if abs(index) <= 1000:
-            rho = 2.0 / math.pi * math.sqrt(max(0.0, 1.0 - epsilon**2))
-        rows.append(f"{epsilon:.3f}\t{rho / normalization:.17g}\n")
-    OUTPUT.write_text("".join(rows), encoding="ascii")
+def write_dos(path, normalization):
+    rows = [
+        f"{epsilon:.17g}\t{rho / normalization:.17g}\n"
+        for epsilon, rho, _ in bethe_rows()
+    ]
+    path.write_text("".join(rows), encoding="ascii")
 
 
-def hilb_normalization():
+def hilb_normalization(path):
     command = [
         "hilb",
         "-v",
         "-i",
         INTERPOLATION,
-        "--gsl-error-policy",
-        "fail",
         "-d",
-        str(OUTPUT),
+        str(path),
         "0",
         "1",
     ]
@@ -54,22 +55,40 @@ def hilb_normalization():
         detail = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(detail or f"hilb exited with status {result.returncode}")
 
-    sums = SUM_PATTERN.findall(result.stdout)
-    if len(sums) != 1:
+    if EXPECTED_ALGORITHM not in result.stderr:
+        raise RuntimeError("hilb did not select the analytic tabulated backend")
+    integrals = INTEGRAL_PATTERN.findall(result.stderr)
+    if len(integrals) != 1:
         raise RuntimeError("unable to determine the DOS normalization from hilb output")
-    normalization = float(sums[0])
+    normalization = float(integrals[0])
     if not math.isfinite(normalization) or normalization <= 0.0:
         raise RuntimeError("hilb reported an invalid DOS normalization")
     return normalization
 
 
 def main():
-    write_dos(1.0)
-    write_dos(hilb_normalization())
+    mode = publication_mode(OUTPUT)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{OUTPUT.name}.", dir=OUTPUT.parent, text=True
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        write_dos(temporary, 1.0)
+        write_dos(temporary, hilb_normalization(temporary))
 
-    normalization = hilb_normalization()
-    if abs(normalization - 1.0) > NORMALIZATION_TOLERANCE:
-        raise RuntimeError(f"DOS normalization check failed: {normalization:.17g}")
+        normalization = hilb_normalization(temporary)
+        if abs(normalization - 1.0) > NORMALIZATION_TOLERANCE:
+            raise RuntimeError(
+                f"DOS normalization check failed: {normalization:.17g}"
+            )
+        os.chmod(temporary, mode)
+        os.replace(temporary, OUTPUT)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
     print(f"DOS normalization ({INTERPOLATION}) = {normalization:.17g}")
 
 

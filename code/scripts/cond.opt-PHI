@@ -5,42 +5,47 @@
 
 use strict;
 use warnings;
+use FindBin;
+use lib $FindBin::Bin;
+use Bubble qw(bubble_options bubble_scalar chemical_potential parameter);
 use Math::Complex;
 
 my $verbose = 1;
 
-chomp(my $T = `getparam T param.loop`);
+my $T = parameter("T");
+$T > 0.0 or die "T must be positive\n";
 
 my $factor = pi**2;
 # pi^2 from the difference between A(w)=-1/Pi Im[..] and a(w)=-Im[..]
 
-# Chemical potential
-my $mu_file = defined($ENV{DMFT_MU_FILE}) && length($ENV{DMFT_MU_FILE})
-    ? $ENV{DMFT_MU_FILE} : (-s "param.mu.used" ? "param.mu.used" : "param.mu");
-open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
-chomp(my $mu = <$mu_fh>);
-close($mu_fh);
+my $mu = chemical_potential();
 
 my $fn = "PHI.dat"; # transport function
-my $param = "-E -p $fn -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6"; # numerical integration parameters
+my @param = (bubble_options(epsabs => "2e-7", epsrel => "1e-8"), "-p", $fn);
 
 sub calc {
     my $Omega = shift;
-    my $res = `bubble -q -O $Omega $param 0 2 0 $T $mu resigma.dat imsigma.dat`;
-    $? == 0 or die;
+    my $res = bubble_scalar("-O", $Omega, @param, 0, 2, 0, $T, $mu,
+                            "resigma.dat", "imsigma.dat");
     my $a0 = $factor*$res;
     my $cond = $a0;
     return $cond;
 }
 
-open(O, ">cond.opt-PHI.dat") or die;
+my $output_name = "cond.opt-PHI.dat";
+my $temporary = "$output_name.tmp.$$";
+END { unlink($temporary) if defined($temporary) && -e $temporary; }
+unlink($temporary);
+open(my $output, ">", $temporary) or die "Can't write $temporary: $!";
 
 for (my $Omega = 1e-7; $Omega < 5.0; $Omega *= 1.1) {
     my $cond = calc($Omega);
     if ($verbose) {
         print "$Omega $cond\n";
     }
-    print O "$Omega $cond\n";
+    print {$output} sprintf("%.17g %.17g\n", $Omega, $cond)
+        or die "Can't write $temporary: $!";
 }
 
-close O;
+close($output) or die "Can't close $temporary: $!";
+rename($temporary, $output_name) or die "Can't replace $output_name: $!";

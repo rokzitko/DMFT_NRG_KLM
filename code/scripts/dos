@@ -1,23 +1,26 @@
 #!/usr/bin/env perl
-# Compute lattice spectral function (dos.dat)
-# By default it uses a linear grid of 10000 points in [w_min:w_max] interval defined by resigma.dat and imsigma.dat
+# Compute lattice spectral function (ldos.dat)
+# By default it uses a linear grid of 10001 points in [w_min:w_max] defined by resigma.dat and imsigma.dat
 # Rok Zitko, rok.zitko@ijs.si, June 2017
 
 use strict;
 use warnings;
-use Math::Complex;
+use FindBin;
+use lib $FindBin::Bin;
+use Bubble qw(bubble_options chemical_potential parameter run_bubble);
 
-chomp(my $T = `getparam T param.loop`);
+my $T = parameter("T");
+$T > 0.0 or die "T must be positive\n";
+my $mu = chemical_potential();
 
 my $fn = "DOS.dat";
-my $param = "-E -p $fn -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6";
+my @param = (bubble_options(epsabs => "1e-9", epsrel => "1e-8"), "-p", $fn);
 
-# Chemical potential
-my $mu_file = defined($ENV{DMFT_MU_FILE}) && length($ENV{DMFT_MU_FILE})
-    ? $ENV{DMFT_MU_FILE} : (-s "param.mu.used" ? "param.mu.used" : "param.mu");
-open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
-chomp(my $mu = <$mu_fh>);
-close($mu_fh);
-
-# Compute dos.dat to be compared with imaw.dat
-system("bubble -d -o ldos.dat $param 0 1 0 $T $mu resigma.dat imsigma.dat") == 0 or die;
+# Compute ldos.dat to be compared with imaw.dat
+my $output = "ldos.dat";
+my $temporary = "$output.tmp.$$";
+END { unlink($temporary) if defined($temporary) && -e $temporary; }
+run_bubble("-d", "-o", $temporary, @param,
+           0, 1, 0, $T, $mu, "resigma.dat", "imsigma.dat");
+-s $temporary or die "Bubble did not produce $temporary\n";
+rename($temporary, $output) or die "Can't replace $output: $!";

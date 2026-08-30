@@ -4,6 +4,8 @@
 
 use strict;
 use warnings;
+use File::Basename qw(dirname);
+use File::Spec;
 use Math::Complex;
 
 my $result_dir = @ARGV ? shift @ARGV : "res";
@@ -36,6 +38,13 @@ if ($imclip eq "") {
 $imclip ne "" or die;
 $imclip > 0.0 or die;
 
+chomp(my $sigma_clip = `getparam clipSigma param.loop`);
+if ($sigma_clip eq "") {
+    chomp($sigma_clip = `getparam clip param.loop`); # fall back
+}
+$sigma_clip ne "" or die;
+$sigma_clip > 0.0 or die;
+
 # Chemical potential
 open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
 my $mu = <$mu_fh>;
@@ -43,22 +52,40 @@ close($mu_fh);
 defined $mu or die "Chemical potential not found in $mu_file";
 chomp($mu);
 
-print "dmftDOS-stable - mu=$mu imclip=$imclip\n";
+print "dmftDOS-stable - mu=$mu imclip=$imclip sigma_clip=$sigma_clip\n";
 
 my $prefix = "$result_dir/";
+my $reGtmp = "$result_dir/reG.dat.TMP";
+my $imGtmp = "$result_dir/imG.dat.TMP";
 my $reFtmp = "$result_dir/reF.dat.TMP";
 my $imFtmp = "$result_dir/imF.dat.TMP";
-unlink($reFtmp, $imFtmp);
+my $re_target = output_target($re_output);
+my $im_target = output_target($im_output);
+my $re_publish = "$re_target.tmp.$$";
+my $im_publish = "$im_target.tmp.$$";
+END {
+    unlink(grep { defined($_) && -e $_ }
+           ($reGtmp, $imGtmp, $reFtmp, $imFtmp, $re_publish, $im_publish));
+}
+unlink($reGtmp, $imGtmp, $reFtmp, $imFtmp);
 
-# F_local(z) = integral dE E rho(E)/(z-E). Without -G, hilb stores both
-# F_local and G_local with the same factor -1/pi, which cancels in their ratio.
-system("hilb", "-v", "-i", "cspline", "-n", "1", "-d", "DOS.dat", "-x", $mu,
+# Evaluate G_local and F_local at the same chemical potential. Without -G,
+# hilb stores both with the same factor -1/pi, which cancels in their ratio.
+system("hilb", "-v", "-i", "steffen", "-n", "0", "-d", "DOS.dat", "-x", $mu,
+       "-c", $sigma_clip, "-f", "1e-12",
+       "${prefix}resigma.dat", "${prefix}imsigma.dat", $reGtmp, $imGtmp)
+    == 0 or die "hilb failed: $?";
+system("hilb", "-v", "-i", "steffen", "-n", "1", "-d", "DOS.dat", "-x", $mu,
+       "-c", $sigma_clip, "-f", "1e-12",
        "${prefix}resigma.dat", "${prefix}imsigma.dat", $reFtmp, $imFtmp)
     == 0 or die "hilb failed: $?";
 
-my @omega = readcol("${prefix}imaw.dat", 1);
-my @imG =   readcol("${prefix}imaw.dat", 2);
-my @reG =   readcol("${prefix}reaw.dat", 2);
+my @omega = readcol($imGtmp, 1);
+my @reGomega = readcol($reGtmp, 1);
+my @imFomega = readcol($imFtmp, 1);
+my @reFomega = readcol($reFtmp, 1);
+my @imG =   readcol($imGtmp, 2);
+my @reG =   readcol($reGtmp, 2);
 my @imF =   readcol($imFtmp, 2);
 my @reF =   readcol($reFtmp, 2);
 
@@ -66,9 +93,14 @@ scalar(@omega) == scalar(@imG) or die "ImG mesh mismatch.";
 scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
 scalar(@omega) == scalar(@imF) or die "ImF mesh mismatch.";
 scalar(@omega) == scalar(@reF) or die "ReF mesh mismatch.";
+for (my $i = 0; $i < @omega; ++$i) {
+    $omega[$i] == $reGomega[$i] or die "ReG frequency mismatch.";
+    $omega[$i] == $imFomega[$i] or die "ImF frequency mismatch.";
+    $omega[$i] == $reFomega[$i] or die "ReF frequency mismatch.";
+}
 
-open(R, ">", $re_output) or die;
-open(I, ">", $im_output) or die;
+open(R, ">", $re_publish) or die "Can't write $re_publish: $!";
+open(I, ">", $im_publish) or die "Can't write $im_publish: $!";
 
 my $len = @omega;
 for (my $i = 0; $i < $len; $i++) {
@@ -80,6 +112,9 @@ for (my $i = 0; $i < $len; $i++) {
     my $Delta = $F/$G;
     my $re = Re($Delta);
     my $im = Im($Delta);
+    abs($re) <= 1.7976931348623157e308
+        && abs($im) <= 1.7976931348623157e308
+        or die "Non-finite hybridization at frequency $o\n";
 
     if ($im > -$imclip) {
         $im = -$imclip;
@@ -90,6 +125,16 @@ for (my $i = 0; $i < $len; $i++) {
     print I "$o $im\n";
 }
 
-close(R);
-close(I);
-unlink($reFtmp, $imFtmp);
+close(R) or die "Can't close $re_publish: $!";
+close(I) or die "Can't close $im_publish: $!";
+rename($re_publish, $re_target) or die "Can't replace $re_target: $!";
+rename($im_publish, $im_target) or die "Can't replace $im_target: $!";
+
+sub output_target {
+    my ($path) = @_;
+    return $path unless -l $path;
+    my $target = readlink($path);
+    defined($target) or die "Can't read output symlink $path: $!";
+    return $target if File::Spec->file_name_is_absolute($target);
+    return File::Spec->catfile(dirname($path), $target);
+}

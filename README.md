@@ -15,12 +15,16 @@ Features:
 - transport calculation using external [bubble](https://github.com/rokzitko/bubble) code
 
 Requirements:
-- NRG Ljubljana with associated tools (hilb, kk, adapt, nrgchain, broaden, resample, matrix, diag, unitary)
+- NRG Ljubljana 2026.09, including the associated tools (`hilb`, `kk`,
+  `integ`, `adapt`, `nrgchain`, `broaden`, `resample`, `matrix`, `diag`,
+  `unitary`)
 - associated scripts (getparam, scaley, getiter, newiter, subtracty...), in github repo rokzitko/nrgljubljana under scripts/.
 - perl
-- Python 3 (for table generation and support scripts)
+- Python 3 with NumPy, SciPy, pandas, and Matplotlib for support and plotting
+  scripts
 - m4 macro processor
-- bubble (optional)
+- Bubble 1.14 or later for transport and lattice-DOS postprocessing (optional
+  for the core DMFT loop)
 
 Two modes of operation:
 - local: a script named "mynrgrun" must exist; a minimal version just calls "nrg", but typically you will want to set up
@@ -216,14 +220,23 @@ For this DOS, the Bethe DMFT self-consistency relation may be written
 =\frac14G^R_{\mathrm{loc}}(\omega).
 ```
 
-The implementation normally evaluates the more general Hilbert transform
-using the tabulated `DOS.dat`, then constructs
+The implementation evaluates the more general Hilbert transforms of the
+tabulated `DOS.dat`. With
 
 ```math
-\mathcal{G}_0^{-1}=(G^R_{\mathrm{loc}})^{-1}+\Sigma^R,
-\qquad
-\Delta^R=\omega+\mu-\mathcal{G}_0^{-1}.
+G(z)=H_0(z),\qquad F(z)=H_1(z),
 ```
+
+the normalized-DOS identity `H_1(z)=zH_0(z)-1` gives the stable update
+
+```math
+\Delta^R(z)=\frac{F(z)}{G(z)}.
+```
+
+NRG Ljubljana materializes the selected Steffen interpolant as interval
+polynomials and integrates both transforms analytically. Thus `H_0` and `H_1`
+use exactly the same represented DOS and satisfy their moment identity up to
+floating-point rounding.
 
 ## Numerical file conventions
 
@@ -243,7 +256,7 @@ already been multiplied by `-1/pi`.  The distinction is important.
 | `ImDelta.next.dat`, `ReDelta.next.dat` | Delta prepared for the next DMFT cycle |
 | `Delta.used.dat`, `Delta.next.dat` | Corresponding `Gamma=-Im Delta^R >= 0` NRG inputs |
 | `self.dat` | Reconstructed impurity spectral function, not the self-energy |
-| `dos.dat` | Interacting local DOS written by `bubble`; distinct from uppercase `DOS.dat` |
+| `ldos.dat` | Interacting local DOS written by `bubble`; distinct from uppercase `DOS.dat` |
 | `cond.opt-PHI.dat` | `Omega`, `sigma_code(Omega)` |
 | `ekin.dat` | Spin-summed kinetic-energy scalar |
 
@@ -271,10 +284,17 @@ It is zero on a freshly generated mesh but can contain copied hybridization
 values after a restart.  Most other numerical tables are whitespace-separated
 and have no header.
 
-`DOS.dat` and `PHI.dat` are strictly increasing, real, two-column tables.
-The Python generators use an integer-indexed mesh and write exact decimal
-band-edge points.  Values at and beyond `|epsilon| = 1` are clamped to real
-zero, avoiding non-C++ numeric tokens caused by complex roundoff.
+`DOS.dat` and `PHI.dat` are strictly increasing, real, two-column tables on an
+identical 2,601-point mesh. Inside the band, the Python generators use 2,001
+uniform values of `theta` with `epsilon=sin(theta)`. This clusters points near
+the square-root band edges without increasing the table size. The endpoints
+are forced to exact `epsilon=+-1` with zero value; 300 exact-zero padding
+points are retained on each side out to `+-1.3`.
+
+`mkDOS` normalizes the Steffen interval-polynomial representation using the
+analytic integral reported by `hilb` and publishes only after that result has
+been verified. `mkPHI` reads the normalized `DOS.dat` and evaluates
+`Phi=(1-epsilon^2)rho_0` on exactly the same knots.
 
 ## Bethe transport function
 
@@ -286,7 +306,7 @@ code-normalized longitudinal transport function is
 =\frac{D^2-\epsilon^2}{D}\rho_0(\epsilon).
 ```
 
-For `D = 1`, `code/mkPHI` writes
+For `D = 1`, the continuum transport function is
 
 ```math
 \Phi(\epsilon)=
@@ -294,8 +314,10 @@ For `D = 1`, `code/mkPHI` writes
 \Theta(1-|\epsilon|).
 ```
 
-The factor `2/pi` is already part of `PHI.dat`.  The identities needed for the
-sum rule are
+The generators apply the same roundoff-scale normalization correction to both
+tables, so the printed `PHI.dat` values can differ from this closed form by one
+common factor while preserving `Phi=(1-epsilon^2)rho_0` at every knot. The
+continuum identities needed for the sum rule are
 
 ```math
 \Phi(\epsilon)=(1-\epsilon^2)\rho_0(\epsilon),
@@ -523,28 +545,10 @@ Multiplying this expression by the code normalization
 ### Numerical interpretation
 
 `code/scripts/sumrule` is a numerical diagnostic, not an exact pass/fail test.
-It uses the external `integrate` script, which applies the trapezoidal rule to
-the positive-frequency table without extrapolating to zero or infinity.
-
-For the checked-in reference result,
-
-```math
-E_{\mathrm{kin}}=-0.335592587787968,
-```
-
-and trapezoidal integration gives
-
-```math
-\int d\Omega\,\sigma_{\mathrm{code}}(\Omega)
-=2.48796949266544,
-\qquad
-r=1.00154780145565.
-```
-
-The approximately `0.155%` excess is primarily the trapezoidal error on a
-geometric grid whose spacing grows by ten percent.  Applying
-`scipy.integrate.simpson` to the same irregular grid gives
-`r = 1.00001502846936`.
+It uses `integ` with Steffen interpolation, a 61-point Gauss-Kronrod rule,
+`epsabs=1e-8`, `epsrel=1e-6`, and fail-on-error behavior. This integrates the
+represented irregular-grid curve rather than applying a trapezoid directly to
+the geometrically spaced samples. It does not extrapolate to zero or infinity.
 
 Smaller residual errors can also arise because `DOS.dat` and `PHI.dat` are
 interpolated independently, the kinetic and optical calls use different finite
@@ -595,27 +599,33 @@ restored in these files.
 
 ## Numerical floors and integration domains
 
-- `code/scripts/sigmatrick` enforces `Im Sigma^R <= -1e-6`.  This is a
-  numerical causality floor, not a physical scattering rate.
-- The `clip` parameter in `param.loop` is described there as an `ImSigma`
-  floor, but it is actually used as the intended floor for
-  `Gamma=-Im Delta` during bath construction and mixing.  The post-mixing
-  `clipy` call enforces `Gamma >= 1e-5`.  The preliminary test in
-  `code/scripts/dmftDOS` compares `Im Delta` with `+1e-5`, rather than
-  `-1e-5`, so the same bound is not guaranteed for the raw or initial bath.
-- `bubble` has its own default floor `-Im Sigma >= 1e-8`.  It normally has no
-  effect here because the stored self-energy has already been clipped at
-  `1e-6`.
-- The optical wrappers use a `20T` internal-frequency cutoff and request
-  absolute and relative quadrature tolerances `1e-8` and `1e-7`.
-- In optical mode, the internal integration interval is approximately
-  `[-20T-Omega, 20T]`, and the shifted propagator also requires self-energy
-  data through `20T+Omega`.
-- The kinetic-energy call uses `bubble -f` defaults.  Its upper occupied-energy
-  cutoff is `15T`; its lower endpoint is the first self-energy frequency.
-- `bubble` and the auxiliary NRG Ljubljana command-line tools are external and
-  are not version-pinned by this repository.  Exact numerical quadrature and
-  interpolation behavior can therefore depend on the installed versions.
+- `clipSigma=1e-12` is the minimum `-Im Sigma` used by `sigmatrick`, `hilb`,
+  and every Bubble caller. It is a numerical causality floor, not a physical
+  scattering rate.
+- `clipDelta=1e-6` is the minimum `Gamma=-Im Delta` used for NRG bath input.
+  It is applied to the raw stable update and after mixing.
+- Tabulated `hilb` and all `kk` calls use analytic interval-polynomial Cauchy
+  transforms. QAG tolerances, workspace sizes, and rules do not apply to these
+  paths.
+- Delta remeshing and KK/Hilbert input interpolation use Steffen. Extrapolation
+  is disabled, and resampled tables are written with 17 significant digits.
+- Bubble 1.14 uses Steffen for both self-energy components and tabulated
+  kernels, a 61-point QAG rule, workspace 1000, and fail-on-error behavior.
+- Standard DC and lattice-DOS Bubble calls request `epsabs=1e-9`. The
+  tabulated-PHI DC and occupied kinetic-energy calls use `epsabs=1e-7` to avoid
+  roundoff-limited failures in their nested integrations. Optical calls use
+  `epsabs=2e-7`; every profile uses `epsrel=1e-8`.
+- Bubble frequency integration uses a `30T` cutoff. DC uses `[-30T,30T]`.
+  Positive-frequency optical mode integrates over `[-30T-Omega,30T]` and
+  requires self-energy coverage over `[-30T-Omega,30T+Omega]`.
+- The occupied kinetic-energy call integrates from the first self-energy
+  frequency to `30T`.
+- `kk` treats its input as having finite support. Its endpoint rows use the
+  finite endpoint-subtracted convention, so broadened endpoint values should
+  be negligible; extend the mesh when they are not.
+
+The convergence norm resamples both spectra with Steffen and uses
+`integ -i steffen -a` with GK61, `epsabs=1e-10`, and `epsrel=1e-9`.
 
 For a non-Bethe or otherwise modified `DOS.dat`, the coefficient
 `3 pi^2/4` is not automatic.  A corresponding `PHI.dat` must use the same

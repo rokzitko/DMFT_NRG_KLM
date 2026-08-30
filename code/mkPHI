@@ -2,27 +2,68 @@
 """Generate the Bethe-lattice transport function in PHI.dat."""
 
 import math
+import os
 from pathlib import Path
 import sys
+import tempfile
+
+from bethe_tables import bethe_rows, publication_mode
 
 
 OUTPUT = Path("PHI.dat")
+DOS = Path("DOS.dat")
+
+
+def normalized_dos_rows():
+    expected = bethe_rows()
+    try:
+        lines = DOS.read_text(encoding="ascii").splitlines()
+    except OSError as exc:
+        raise RuntimeError(f"unable to read {DOS}: {exc}") from exc
+    if len(lines) != len(expected):
+        raise RuntimeError(f"{DOS} does not use the expected Bethe mesh")
+
+    rows = []
+    for line_number, (line, expected_row) in enumerate(zip(lines, expected), 1):
+        fields = line.split()
+        if len(fields) != 2:
+            raise RuntimeError(f"expected two columns in {DOS} at line {line_number}")
+        try:
+            epsilon, rho = map(float, fields)
+        except ValueError as exc:
+            raise RuntimeError(f"invalid numeric value in {DOS} at line {line_number}") from exc
+        if not math.isfinite(epsilon) or not math.isfinite(rho) or rho < 0.0:
+            raise RuntimeError(f"invalid DOS value in {DOS} at line {line_number}")
+        if epsilon != expected_row[0]:
+            raise RuntimeError(f"{DOS} does not use the expected Bethe mesh")
+        rows.append((epsilon, rho))
+    return rows
 
 
 def main():
-    rows = []
-    for index in range(-1300, 1301):
-        epsilon = index / 1000
-        phi = 0.0
-        if abs(index) <= 1000:
-            phi = 2.0 / math.pi * max(0.0, 1.0 - epsilon**2) ** 1.5
-        rows.append(f"{epsilon:.3f}\t{phi:.17g}\n")
-    OUTPUT.write_text("".join(rows), encoding="ascii")
+    rows = [
+        f"{epsilon:.17g}\t{rho * max(0.0, 1.0 - epsilon * epsilon):.17g}\n"
+        for epsilon, rho in normalized_dos_rows()
+    ]
+    mode = publication_mode(OUTPUT)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{OUTPUT.name}.", dir=OUTPUT.parent, text=True
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="ascii") as stream:
+            stream.write("".join(rows))
+        os.chmod(temporary_name, mode)
+        os.replace(temporary_name, OUTPUT)
+    finally:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
 
 
 if __name__ == "__main__":
     try:
         main()
-    except OSError as exc:
-        print(f"mkPHI: unable to write {OUTPUT}: {exc}", file=sys.stderr)
+    except (OSError, RuntimeError) as exc:
+        print(f"mkPHI: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

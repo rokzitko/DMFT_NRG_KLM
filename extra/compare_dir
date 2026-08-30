@@ -5,30 +5,48 @@
 # is larger than $limit.
 # Rok Zitko, aug 2026
 
+use strict;
+use warnings;
+
 my $limit = 1e-4;
 
 my $dir = shift;
 
--d $dir or die;
+-d $dir or die "Usage: $0 reference-directory\n";
 chdir $dir or die;
 
 my $sum = 0;
 
 foreach (<*.dat>) {
     -s or next;
-    chomp(my $count = `wc -l < $_`);
+    my $filename = $_;
+    open(my $input, "<", $filename) or die "Can't read $filename: $!";
+    my $count = 0;
+    ++$count while defined(my $line = <$input>);
+    close($input) or die "Can't close $filename: $!";
     my $diff;
     if ($count > 1) {
-        system("resample ../$_ $_ tmp") == 0 or next; # Skip cases where resampling fails
-        system "subtracty $_ tmp >diff";
+        system("resample", "--interpolation", "steffen", "-p", "17",
+               "../$filename", $filename, "tmp") == 0
+            or die "resample failed for $filename: $?";
+        write_difference($filename, "tmp", "diff");
         unlink("tmp");
-        $diff = `integrateabs diff`;
+        $diff = command_output(
+            "integ", "--interpolation", "steffen",
+            "--epsabs", "1e-10", "--epsrel", "1e-9",
+            "--workspace-limit", "1000", "--quadrature-rule", "61",
+            "--gsl-error-policy", "fail", "-a", "diff",
+        );
     } else {
-        system "subtract $_ ../$_ >diff";
-        $diff = `cat diff`;
+        $diff = command_output("subtract", $filename, "../$filename");
     }
     chomp($diff);
-    print "$_ $diff\n";
+    $diff =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
+        or die "Invalid difference for $filename: $diff\n";
+    $diff = abs(0.0 + $diff);
+    $diff <= 1.7976931348623157e308
+        or die "Non-finite difference for $filename\n";
+    print "$filename $diff\n";
     unlink("diff");
     $sum += $diff;
 }
@@ -40,5 +58,27 @@ if ($sum > $limit) {
     exit(1);
 } else {
     print "SUCCESS.\n";
-    exit(1);
+    exit(0);
+}
+
+sub write_difference {
+    my ($first, $second, $output) = @_;
+    open(my $input, "-|", "subtracty", $first, $second)
+        or die "Can't run subtracty: $!";
+    open(my $destination, ">", $output) or die "Can't write $output: $!";
+    while (<$input>) {
+        print {$destination} $_ or die "Can't write $output: $!";
+    }
+    close($input) or die "subtracty failed: $?";
+    close($destination) or die "Can't close $output: $!";
+}
+
+sub command_output {
+    my @command = @_;
+    open(my $fh, "-|", @command) or die "Can't run $command[0]: $!";
+    local $/;
+    my $output = <$fh>;
+    close($fh) or die "$command[0] failed: $?";
+    defined($output) or die "$command[0] produced no output";
+    return $output;
 }

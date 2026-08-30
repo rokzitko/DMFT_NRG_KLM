@@ -24,6 +24,21 @@ foreach (@l) {
 sub kk {
     my ($in, $out) = @_;
     -s $in or die "Input file not found: $in. Stopped";
-    system("$kkexe $in $out") == 0 or die "kk failed: $?";
-    -s $out or die "Output file not found:$ out. Stopped";
+    my $temporary = "$out.tmp.$$";
+    unlink($temporary);
+    system($kkexe, "--interpolation", "steffen", $in, $temporary) == 0
+        or do {
+            my $status = $?;
+            unlink($temporary);
+            die "kk failed: $status";
+        };
+    -s $temporary or do {
+        unlink($temporary);
+        die "Output file not found: $temporary. Stopped";
+    };
+    rename($temporary, $out) or do {
+        my $error = $!;
+        unlink($temporary);
+        die "Can't replace $out: $error";
+    };
 }

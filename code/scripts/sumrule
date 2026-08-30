@@ -8,8 +8,25 @@ use strict;
 use warnings;
 use Math::Complex;
 
-my $ekin = `cat ekin.dat`;
-my $rhoint = `integrate cond.opt-PHI.dat`;
+my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+
+open(my $ekin_fh, "<", "ekin.dat") or die "Can't read ekin.dat: $!";
+local $/;
+my $ekin = <$ekin_fh>;
+close($ekin_fh) or die "Can't close ekin.dat: $!";
+$ekin =~ /\A\s*($number)\s*\z/ or die "Invalid kinetic energy: $ekin";
+$ekin = 0.0 + $1;
+
+open(my $integ_fh, "-|", "integ", "--interpolation", "steffen",
+     "--epsabs", "1e-8", "--epsrel", "1e-6",
+     "--workspace-limit", "1000", "--quadrature-rule", "61",
+     "--gsl-error-policy", "fail", "cond.opt-PHI.dat")
+    or die "Can't run integ: $!";
+my $rhoint = <$integ_fh>;
+close($integ_fh) or die "integ failed: $?";
+defined($rhoint) && $rhoint =~ /\A\s*($number)\s*\z/
+    or die "Invalid optical integral: " . (defined($rhoint) ? $rhoint : "<empty>");
+$rhoint = 0.0 + $1;
 
 my $ratio = $rhoint/(-$ekin);
 

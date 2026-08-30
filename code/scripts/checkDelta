@@ -11,6 +11,9 @@ chomp(my $bandrescale = `getparam bandrescale param.loop`);
 $bandrescale ne "" && $bandrescale > 0 or die;
 
 chomp(my $clipDelta = `getparam clipDelta param.loop`);
+if ($clipDelta eq "") {
+  chomp($clipDelta = `getparam clip param.loop`); # fall back
+}
 $clipDelta ne "" && $clipDelta > 0 or die;
 
 chomp(my $broaden_max = `getparam broaden_max param.loop`);
@@ -37,4 +40,3 @@ if ($R > $limit) {
 } else {
   print "OK!\n";
 }
-

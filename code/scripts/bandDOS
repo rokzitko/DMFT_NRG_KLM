@@ -8,6 +8,8 @@ use strict;
 use warnings;
 use File::Path qw(make_path);
 
+my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+
 my $result_dir = @ARGV ? shift @ARGV : "res";
 my $mu_file = @ARGV ? shift @ARGV : "param.mu";
 @ARGV and die "Usage: $0 [result_dir [mu_file]]\n";
@@ -21,29 +23,63 @@ close($mu_fh);
 defined $mu or die "Chemical potential not found in $mu_file";
 chomp($mu);
 
-# Clipping of Im part of GF; this can happen due to numerical integration for narrow regions of small ImSigma
-chomp(my $imclip = `getparam clipG param.loop`);
-if ($imclip eq "") {
-  chomp($imclip = `getparam clip param.loop`); # fall back
+# Use the same causal self-energy floor as the self-energy reconstruction.
+chomp(my $sigma_clip = `getparam clipSigma param.loop`);
+if ($sigma_clip eq "") {
+  chomp($sigma_clip = `getparam clip param.loop`); # fall back
 }
-$imclip ne "" or die;
-$imclip > 0.0 or die;
+$sigma_clip ne "" or die;
+$sigma_clip > 0.0 or die;
 
-print("bandDOS mu=$mu imclip=$imclip\n");
+print("bandDOS mu=$mu sigma_clip=$sigma_clip\n");
 
-my $fntmp = "$result_dir/imaw.dat.TMP"; # before clipping
-
-system("hilb", "-v", "-i", "cspline", "-d", "DOS.dat", "-x", $mu,
+my $re_output = "$result_dir/reaw.dat";
+my $im_output = "$result_dir/imaw.dat";
+my $re_temporary = "$re_output.tmp.$$";
+my $im_temporary = "$im_output.tmp.$$";
+END {
+    unlink($re_temporary) if defined($re_temporary) && -e $re_temporary;
+    unlink($im_temporary) if defined($im_temporary) && -e $im_temporary;
+}
+system("hilb", "-v", "-i", "steffen", "-d", "DOS.dat", "-x", $mu,
+       "-c", $sigma_clip, "-f", "1e-12",
        "$result_dir/resigma.dat", "$result_dir/imsigma.dat",
-       "$result_dir/reaw.dat", $fntmp) == 0 or die "hilb failed: $?";
+       $re_temporary, $im_temporary) == 0
+    or die "hilb failed: $?";
 
-open(my $clip_fh, "-|", "clipy", "b", $imclip, $fntmp)
-    or die "Can't run clipy: $!";
-open(my $imaw_fh, ">", "$result_dir/imaw.dat")
-    or die "Can't open $result_dir/imaw.dat for writing, stopped";
-while (<$clip_fh>) {
-    print {$imaw_fh} $_ or die "Can't write $result_dir/imaw.dat: $!";
+my $re_mesh = validate_table($re_temporary, 0);
+my $im_mesh = validate_table($im_temporary, 1);
+@$re_mesh == @$im_mesh or die "Hilbert-output mesh-size mismatch\n";
+for (my $index = 0; $index < @$re_mesh; ++$index) {
+    $re_mesh->[$index] == $im_mesh->[$index]
+        or die "Hilbert-output frequency mismatch at row " . ($index + 1) . "\n";
 }
-close($clip_fh) or die "clipy failed: $?";
-close($imaw_fh) or die "Can't close $result_dir/imaw.dat: $!";
-unlink($fntmp);
+rename($re_temporary, $re_output) or die "Can't replace $re_output: $!";
+rename($im_temporary, $im_output) or die "Can't replace $im_output: $!";
+
+sub validate_table {
+    my ($filename, $require_nonnegative) = @_;
+    open(my $fh, "<", $filename) or die "Can't read $filename: $!";
+    my $previous;
+    my @mesh;
+    while (<$fh>) {
+        next if /^\s*$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $filename at line $.\n";
+        $fields[0] =~ /\A$number\z/ && $fields[1] =~ /\A$number\z/
+            or die "Invalid numeric value in $filename at line $.\n";
+        my ($omega, $value) = map { 0.0 + $_ } @fields;
+        abs($omega) <= 1.7976931348623157e308
+            && abs($value) <= 1.7976931348623157e308
+            or die "Non-finite value in $filename at line $.\n";
+        defined($previous) && $omega <= $previous
+            and die "Non-increasing mesh in $filename at line $.\n";
+        !$require_nonnegative || $value >= 0.0
+            or die "Negative spectral value in $filename at line $.: $value\n";
+        $previous = $omega;
+        push(@mesh, $omega);
+    }
+    close($fh) or die "Can't close $filename: $!";
+    @mesh >= 2 or die "Too few rows in $filename\n";
+    return \@mesh;
+}

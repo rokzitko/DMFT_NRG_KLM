@@ -5,34 +5,30 @@
 
 use strict;
 use warnings;
+use FindBin;
+use lib $FindBin::Bin;
+use Bubble qw(bubble_options bubble_scalar chemical_potential parameter write_scalar);
 use Math::Complex;
 
 my $verbose = 1;
 
-chomp(my $T = `getparam T param.loop`);
+my $T = parameter("T");
+$T > 0.0 or die "T must be positive\n";
 
 my $factor = pi**2;
 # pi^2 from the difference between A(w)=-1/Pi Im[..] and a(w)=-Im[..]
 
-# Chemical potential
-my $mu_file = defined($ENV{DMFT_MU_FILE}) && length($ENV{DMFT_MU_FILE})
-    ? $ENV{DMFT_MU_FILE} : (-s "param.mu.used" ? "param.mu.used" : "param.mu");
-open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
-chomp(my $mu = <$mu_fh>);
-close($mu_fh);
+my $mu = chemical_potential();
 
 my $fn = "PHI.dat"; # transport function
-my $param = "-E -p $fn -c 30 -a 1e-7 -r 1e-6 -i 3 -k 6"; # numerical integration parameters
+my @param = (bubble_options(epsabs => "1e-7", epsrel => "1e-8"), "-p", $fn);
 
 my $res;
-$res = `bubble $param 0 2 0 $T $mu resigma.dat imsigma.dat`;
-($? == 0) or die;
+$res = bubble_scalar(@param, 0, 2, 0, $T, $mu, "resigma.dat", "imsigma.dat");
 my $a0 = $factor*$res;
-$res = `bubble $param 0 2 1 $T $mu resigma.dat imsigma.dat`;
-($? == 0) or die;
+$res = bubble_scalar(@param, 0, 2, 1, $T, $mu, "resigma.dat", "imsigma.dat");
 my $a1 = $factor*$res;
-$res = `bubble $param 0 2 2 $T $mu resigma.dat imsigma.dat`;
-($? == 0) or die;
+$res = bubble_scalar(@param, 0, 2, 2, $T, $mu, "resigma.dat", "imsigma.dat");
 my $a2 = $factor*$res;
 
 my $A0 = $a0*$T;
@@ -64,9 +60,9 @@ if ($verbose) {
     print "ZT=$ZT\n";
 }
 
-system "echo $cond >condMIR.dat";
-system "echo $rho >rhoMIR.dat";
-system "echo $thermo >thermopowerS.dat";
-system "echo $kappa >kappa.dat";
-system "echo $Lorentz >LL.dat";
-system "echo $ZT >ZT.dat";
+write_scalar("condMIR.dat", $cond);
+write_scalar("rhoMIR.dat", $rho);
+write_scalar("thermopowerS.dat", $thermo);
+write_scalar("kappa.dat", $kappa);
+write_scalar("LL.dat", $Lorentz);
+write_scalar("ZT.dat", $ZT);

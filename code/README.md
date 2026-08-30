@@ -1,5 +1,8 @@
-How to start:
+# Running the DMFT loop
 
-- If DOS.dat (density of states of the band) does not exist, create it by running mkDOS.
-- Modify model and solver settings in param.loop if needed.
-- Start calculation by running DMFT scripts in current directory.
+- Use NRG Ljubljana 2026.09 at commit `683f981b` or later and Bubble 1.14 or
+  later.
+- Reproduce the checked-in Bethe tables by running `mkDOS` followed by
+  `mkPHI`.
+- Modify model and solver settings in `param.loop` if needed.
+- Start the calculation with `START` from this directory.

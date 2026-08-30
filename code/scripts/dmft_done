@@ -247,10 +247,11 @@ sub prepare_common_mesh {
             or die "mesh optimization failed: $?";
         system("mesh_union res/ImDelta.used.dat res/ImDelta.dat.NEW-opt >res/mesh.next.dat 2>res/logUNION") == 0
             or die "mesh union failed: $?";
-        system("resample", "res/ReDelta.used.dat", "res/mesh.next.dat", "res/ReDelta.dat.OLD-common") == 0 or die;
-        system("resample", "res/ReDelta.dat.NEW", "res/mesh.next.dat", "res/ReDelta.dat.NEW-common") == 0 or die;
-        system("resample", "res/ImDelta.used.dat", "res/mesh.next.dat", "res/ImDelta.dat.OLD-common") == 0 or die;
-        system("resample", "res/ImDelta.dat.NEW", "res/mesh.next.dat", "res/ImDelta.dat.NEW-common") == 0 or die;
+        my @resample = ("resample", "--interpolation", "steffen", "-p", "17");
+        system(@resample, "res/ReDelta.used.dat", "res/mesh.next.dat", "res/ReDelta.dat.OLD-common") == 0 or die;
+        system(@resample, "res/ReDelta.dat.NEW", "res/mesh.next.dat", "res/ReDelta.dat.NEW-common") == 0 or die;
+        system(@resample, "res/ImDelta.used.dat", "res/mesh.next.dat", "res/ImDelta.dat.OLD-common") == 0 or die;
+        system(@resample, "res/ImDelta.dat.NEW", "res/mesh.next.dat", "res/ImDelta.dat.NEW-common") == 0 or die;
     } else {
         copy_required("res/mesh.used.dat", "res/mesh.next.dat");
         copy_required("res/ReDelta.used.dat", "res/ReDelta.dat.OLD-common");

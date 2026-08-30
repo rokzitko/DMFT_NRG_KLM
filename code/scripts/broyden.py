@@ -105,7 +105,43 @@ def interpolate(path, mesh):
     tolerance = 1e-12 * scale
     if mesh[0] < source_mesh[0] - tolerance or mesh[-1] > source_mesh[-1] + tolerance:
         raise BroydenError(f"Mesh in {path} does not cover the current frequency range")
-    return np.interp(mesh, source_mesh, values)
+
+    interval_widths = np.diff(source_mesh)
+    secants = np.diff(values) / interval_widths
+    derivatives = np.empty_like(values)
+    derivatives[0] = secants[0]
+    derivatives[-1] = secants[-1]
+    weighted_secants = (
+        secants[:-1] * interval_widths[1:]
+        + secants[1:] * interval_widths[:-1]
+    ) / (interval_widths[:-1] + interval_widths[1:])
+    derivatives[1:-1] = (
+        np.sign(secants[:-1]) + np.sign(secants[1:])
+    ) * np.minimum.reduce(
+        (
+            np.abs(secants[:-1]),
+            np.abs(secants[1:]),
+            0.5 * np.abs(weighted_secants),
+        )
+    )
+
+    evaluation_mesh = np.clip(mesh, source_mesh[0], source_mesh[-1])
+    intervals = np.searchsorted(source_mesh, evaluation_mesh, side="right") - 1
+    intervals = np.clip(intervals, 0, len(source_mesh) - 2)
+    widths = interval_widths[intervals]
+    position = (evaluation_mesh - source_mesh[intervals]) / widths
+    position2 = position * position
+    position3 = position2 * position
+    return (
+        (2.0 * position3 - 3.0 * position2 + 1.0) * values[intervals]
+        + (position3 - 2.0 * position2 + position)
+        * widths
+        * derivatives[intervals]
+        + (-2.0 * position3 + 3.0 * position2) * values[intervals + 1]
+        + (position3 - position2)
+        * widths
+        * derivatives[intervals + 1]
+    )
 
 
 def load_scalar(path):

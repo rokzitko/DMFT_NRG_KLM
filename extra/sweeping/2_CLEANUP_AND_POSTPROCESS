@@ -21,6 +21,7 @@ foreach (<*>) {
   system "cp -v ../cond.opt-PHI scripts/";
   system "cp -v ../dos scripts/";
   system "cp -v ../ekin scripts/";
+  system "cp -v ../Bubble.pm scripts/";
 
   # Postprocessing
   system("scripts/post") == 0 or die "postprocessing failed";

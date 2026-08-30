@@ -39,7 +39,8 @@ system(
 -s $meshnew or die "Failed to generate $meshnew";
 
 # Resampling
-my @resample_args = $allowextrapolation ? ("-e") : ();
+my @resample_args = ("--interpolation", "steffen", "-p", "17");
+push(@resample_args, "-e") if $allowextrapolation;
 system("resample", @resample_args, $refile, $meshnew, $renew) == 0 or die;
 system("resample", @resample_args, $imfile, $meshnew, $imnew) == 0 or die;
 -s $renew && -s $imnew or die "resampleDelta failed";

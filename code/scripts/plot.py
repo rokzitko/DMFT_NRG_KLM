@@ -850,7 +850,7 @@ def plot_bare_inputs(context: RunContext) -> None:
     axis.text(
         0.98,
         0.95,
-        rf"$\int\rho_0\,d\epsilon={format_math_number(dos_integral, 8)}$"
+        rf"trapezoid: $\int\rho_0\,d\epsilon={format_math_number(dos_integral, 8)}$"
         + "\n"
         + rf"$\int\Phi\,d\epsilon={format_math_number(phi_integral, 8)}$",
         transform=axis.transAxes,
@@ -1098,7 +1098,7 @@ def plot_optical_sum_rule(context: RunContext) -> None:
     axis.text(
         0.98,
         0.08,
-        rf"final ratio $={format_math_number(ratio[-1], 8)}$",
+        rf"trapezoidal final ratio $={format_math_number(ratio[-1], 8)}$",
         transform=axis.transAxes,
         ha="right",
         va="bottom",
@@ -1108,7 +1108,7 @@ def plot_optical_sum_rule(context: RunContext) -> None:
     axis.set_xscale("log")
     axis.set_xlabel(r"optical frequency $\Omega$")
     axis.set_ylabel(r"$\int_0^\Omega \sigma(\Omega')d\Omega' / [(3\pi^2/4)(-E_{\mathrm{kin}})]$")
-    axis.set_title("cumulative optical sum rule")
+    axis.set_title("trapezoidal cumulative optical weight")
     axis.legend(frameon=False, loc="center left")
     style_axis(axis, grid=False)
     save_figure(

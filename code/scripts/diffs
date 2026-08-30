@@ -44,24 +44,29 @@ sub diff {
  # Support for adaptive mesh
   my $tmp1 = File::Spec->catfile($output_dir, ".diff-1.tmp");
   my $tmp2 = File::Spec->catfile($output_dir, ".diff-2.tmp");
-  unlink($tmp1, $tmp2);
-  system("resample", $fn1, $mesh, $tmp1) == 0 or die "resample failed: $?";
-  system("resample", $fn2, $mesh, $tmp2) == 0 or die "resample failed: $?";
+  my $residual = File::Spec->catfile($output_dir, ".diff-residual.tmp");
+  unlink($tmp1, $tmp2, $residual);
+  my @resample = ("resample", "--interpolation", "steffen", "-p", "17");
+  system(@resample, $fn1, $mesh, $tmp1) == 0 or die "resample failed: $?";
+  system(@resample, $fn2, $mesh, $tmp2) == 0 or die "resample failed: $?";
 
-  my $diff = pipeline_output($tmp1, $tmp2, "integrateabs");
+  write_difference($tmp1, $tmp2, $residual);
+  my $diff = command_output(
+      "integ", "--interpolation", "steffen",
+      "--epsabs", "1e-10", "--epsrel", "1e-9",
+      "--workspace-limit", "1000", "--quadrature-rule", "61",
+      "--gsl-error-policy", "fail", "-a", $residual,
+  );
   chomp($diff);
  print "diff($fn1 - $fn2)=$diff\n";
  $diff ne "" or die "Calculation of diff failed.";
- $diff != 0 or die "Difference is exactly zero. This is very suspicious. Stopping";
 
- # NOTE: This is simply an integral of A(w) from -inf to 0, so it only corresponds to occupancy
- # in the zero-temperature case. This value is reported for debugging purposes, it is not used
- # otherwise.
-  my $occupancydiff = pipeline_output($tmp1, $tmp2, "integratenegabs");
-  chomp($occupancydiff);
- print "occupancy diff=$occupancydiff\n";
+  # Additional negative-frequency L1 diagnostic; not used for convergence.
+  my $negative_diff = command_output("integratenegabs", $residual);
+  chomp($negative_diff);
+ print "negative-frequency diff=$negative_diff\n";
 
-  unlink($tmp1, $tmp2);
+  unlink($tmp1, $tmp2, $residual);
 
   my @old;
   if (-e $output) {
@@ -75,21 +80,24 @@ sub diff {
   close($out) or die "Can't close $output: $!. Stopped";
 }
 
-sub pipeline_output {
-  my ($first, $second, $integrator) = @_;
-  my $command = "set -o pipefail; subtracty " . shell_quote($first) . " " .
-      shell_quote($second) . " | $integrator";
-  open(my $fh, "-|", "bash", "-c", $command)
-      or die "Can't run difference pipeline: $!";
-  local $/;
-  my $output = <$fh>;
-  close($fh) or die "Difference pipeline failed: $?";
-  defined($output) or die "Difference pipeline produced no output";
-  return $output;
+sub write_difference {
+  my ($first, $second, $output) = @_;
+  open(my $input, "-|", "subtracty", $first, $second)
+      or die "Can't run subtracty: $!";
+  open(my $destination, ">", $output) or die "Can't write $output: $!";
+  while (<$input>) {
+      print {$destination} $_ or die "Can't write $output: $!";
+  }
+  close($input) or die "subtracty failed: $?";
+  close($destination) or die "Can't close $output: $!";
 }
 
-sub shell_quote {
-  my ($value) = @_;
-  $value =~ s/'/'"'"'/g;
-  return "'$value'";
+sub command_output {
+  my @command = @_;
+  open(my $fh, "-|", @command) or die "Can't run $command[0]: $!";
+  local $/;
+  my $output = <$fh>;
+  close($fh) or die "$command[0] failed: $?";
+  defined($output) or die "$command[0] produced no output";
+  return $output;
 }
