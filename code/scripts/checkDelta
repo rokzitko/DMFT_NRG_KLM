@@ -1,42 +1,106 @@
 #!/usr/bin/env perl
-# Check if hybridization function falls within the energy window [-bandrescale:bandrescale]
-# Rok Ziko, 2026
+# Check that physical hybridization weight lies inside the NRG energy window.
+# Rok Zitko, 2026
 
 use strict;
 use warnings;
+use POSIX qw(isfinite);
 
--e "Delta.dat" or die;
+-s "Delta.dat" or die "Authoritative Delta.dat not found.\n";
 
-chomp(my $bandrescale = `getparam bandrescale param.loop`);
-$bandrescale ne "" && $bandrescale > 0 or die;
+my $bandrescale = parameter("bandrescale");
+$bandrescale > 0.0 or die "bandrescale must be positive.\n";
+my $clip = parameter("clipDelta", 1);
+$clip = parameter("clip") if !defined($clip);
+defined($clip) && $clip > 0.0 or die "clipDelta must be positive.\n";
 
-chomp(my $clipDelta = `getparam clipDelta param.loop`);
-if ($clipDelta eq "") {
-  chomp($clipDelta = `getparam clip param.loop`); # fall back
+open(my $delta_fh, "<", "Delta.dat") or die "Can't read Delta.dat: $!";
+my (@omega, @gamma);
+while (<$delta_fh>) {
+    next if /^\s*(?:#.*)?$/;
+    my @fields = split;
+    @fields == 2 or die "Expected two columns in Delta.dat at line $.\n";
+    my ($frequency, $value) = map { number($_, "Delta.dat at line $.") } @fields;
+    @omega && $frequency <= $omega[-1]
+        and die "Delta.dat mesh is not strictly increasing at line $.\n";
+    push(@omega, $frequency);
+    push(@gamma, $value);
 }
-$clipDelta ne "" && $clipDelta > 0 or die;
+close($delta_fh) or die "Can't close Delta.dat: $!";
+@omega >= 4 or die "Delta.dat must contain at least four rows.\n";
+$gamma[0] == 0.0 && $gamma[-1] == 0.0
+    or die "Delta.dat must have exact-zero outer support points.\n";
+for my $index (1 .. $#gamma - 1) {
+    $gamma[$index] >= $clip * (1.0 - 1e-12)
+        or die "Delta.dat Gamma is below clipDelta at row " . ($index + 1) . ".\n";
+}
 
-chomp(my $broaden_max = `getparam broaden_max param.loop`);
-$broaden_max ne "" && $broaden_max > 0 or die;
+my $floor_file = ".Delta.floor.tmp.$$";
+END { unlink($floor_file) if defined($floor_file) && -e $floor_file; }
+open(my $floor_fh, ">", $floor_file) or die "Can't write $floor_file: $!";
+for my $index (0 .. $#omega) {
+    my $value = $index == 0 || $index == $#omega ? 0.0 : $clip;
+    printf {$floor_fh} "%.17g %.17g\n", $omega[$index], $value;
+}
+close($floor_fh) or die "Can't close $floor_file: $!";
 
-chomp(my $total = `integrate Delta.dat`);
-$total ne "" && $total > 0 or die;
-chomp(my $ab = `integrateab Delta.dat -$bandrescale $bandrescale`);
-$ab ne "" && $ab > 0 or die;
+my $total = integrate("Delta.dat");
+my $inside = integrate("Delta.dat", -$bandrescale, $bandrescale);
+my $floor_total = integrate($floor_file);
+my $floor_inside = integrate($floor_file, -$bandrescale, $bandrescale);
+$total > 0.0 && $inside > 0.0 or die "Delta.dat has no positive represented weight.\n";
 
-my $diff = $total-$ab;
-my $corrected = $diff - 2*($broaden_max-$bandrescale)*$clipDelta; # subtract what would arise from clipping to a non-zero value
+my $outside = $total - $inside;
+my $floor_outside = $floor_total - $floor_inside;
+my $corrected = $outside - $floor_outside;
+my $ratio = $inside / $total;
+my $relative_outside = abs($corrected / $total);
 
-my $ratio = $ab/$total;
-
-my $R = abs($corrected/$total);
-
-print "checkDelta: total=$total ab=$ab ratio=$ratio\ndiff=$diff corrected=$corrected\nR=$R\n";
+print "checkDelta: total=$total inside=$inside ratio=$ratio\n";
+print "outside=$outside floor_outside=$floor_outside corrected=$corrected\n";
+print "R=$relative_outside\n";
 
 my $limit = 1e-3;
+if ($relative_outside > $limit) {
+    die "DANGER: $relative_outside of total physical weight in Delta.dat is " .
+        "located outside the NRG discretization window.\n";
+}
+print "OK!\n";
 
-if ($R > $limit) {
-  die "DANGER: $R of total weight in Delta.dat is located outside the NRG discretization window.\n";
-} else {
-  print "OK!\n";
+sub parameter {
+    my ($name, $optional) = @_;
+    open(my $fh, "-|", "getparam", $name, "param.loop")
+        or die "Can't run getparam: $!";
+    local $/;
+    my $text = <$fh>;
+    my $ok = close($fh);
+    return if $optional && (!$ok || !defined($text) || $text !~ /\S/);
+    $ok or die "Can't read $name from param.loop.\n";
+    return number($text, "$name in param.loop");
+}
+
+sub integrate {
+    my ($file, @bounds) = @_;
+    my @command = ("integ", "--interpolation", "steffen");
+    if (@bounds) {
+        push(@command, "--lower-bound", $bounds[0], "--upper-bound", $bounds[1]);
+    } else {
+        push(@command, "--total");
+    }
+    push(@command, "--", $file);
+    open(my $fh, "-|", @command) or die "Can't run integ: $!";
+    local $/;
+    my $text = <$fh>;
+    close($fh) or die "integ failed for $file: $?\n";
+    return number($text, "integral of $file");
+}
+
+sub number {
+    my ($text, $context) = @_;
+    my $pattern = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+    defined($text) && $text =~ /\A\s*($pattern)\s*\z/
+        or die "Invalid numeric value in $context.\n";
+    my $value = 0.0 + $1;
+    isfinite($value) or die "Non-finite numeric value in $context.\n";
+    return $value;
 }

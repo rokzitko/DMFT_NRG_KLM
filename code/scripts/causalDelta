@@ -1,0 +1,169 @@
+#!/usr/bin/env perl
+# Canonicalize Gamma=-Im Delta and reconstruct the causal complex hybridization.
+
+use strict;
+use warnings;
+use File::Basename qw(dirname);
+use File::Spec;
+use Getopt::Long qw(GetOptions);
+use List::Util qw(max);
+use POSIX qw(isfinite);
+
+my $parameter_file = "param.loop";
+my $eps_file = "param.eps";
+GetOptions(
+    "parameter-file=s" => \$parameter_file,
+    "eps-file=s" => \$eps_file,
+) or die usage();
+
+my $gamma_input = @ARGV ? shift @ARGV : "Delta.dat";
+my $gamma_output = @ARGV ? shift @ARGV : "Delta.dat";
+my $re_output = @ARGV ? shift @ARGV : "ReDelta.dat";
+my $im_output = @ARGV ? shift @ARGV : "ImDelta.dat";
+@ARGV and die usage();
+
+my $clip = get_numeric_parameter("clipDelta", $parameter_file);
+$clip = get_numeric_parameter("clip", $parameter_file) if !defined($clip);
+defined($clip) && $clip > 0.0
+    or die "clipDelta must be a finite positive number in $parameter_file\n";
+my $eps = read_scalar($eps_file);
+
+my ($mesh, $raw_gamma) = read_table($gamma_input);
+@$mesh >= 4 or die "$gamma_input must contain at least four rows for Steffen KK\n";
+@$mesh % 2 == 0 or die "$gamma_input must contain an even number of rows for KK\n";
+for my $index (0 .. $#$mesh) {
+    my $opposite = $#$mesh - $index;
+    my $scale = max(abs($mesh->[$index]), abs($mesh->[$opposite]), 1.0);
+    abs($mesh->[$index] + $mesh->[$opposite]) <= 1e-10 * $scale
+        or die "$gamma_input frequency mesh is not symmetric around zero\n";
+}
+
+my @gamma = @$raw_gamma;
+$gamma[0] = 0.0;
+$gamma[-1] = 0.0;
+for my $index (1 .. $#gamma - 1) {
+    $gamma[$index] = $clip if $gamma[$index] < $clip;
+}
+my @imaginary = map { -$_ } @gamma;
+
+my $gamma_target = output_target($gamma_output);
+my $re_target = output_target($re_output);
+my $im_target = output_target($im_output);
+my %targets;
+for my $target ($gamma_target, $re_target, $im_target) {
+    my $absolute = File::Spec->rel2abs($target);
+    $targets{$absolute}++ and die "Causal Delta outputs must be distinct files\n";
+    -d dirname($target) or die "Output directory does not exist for $target\n";
+}
+
+my $gamma_temporary = "$gamma_target.tmp.$$";
+my $im_temporary = "$im_target.tmp.$$";
+my $re_kk_temporary = "$re_target.kk.tmp.$$";
+my $re_temporary = "$re_target.tmp.$$";
+my @temporary = ($gamma_temporary, $im_temporary, $re_kk_temporary, $re_temporary);
+END { unlink(grep { defined($_) && (-e $_ || -l $_) } @temporary); }
+unlink(@temporary);
+
+write_table($gamma_temporary, $mesh, \@gamma);
+write_table($im_temporary, $mesh, \@imaginary);
+system("kk", "--interpolation", "steffen", $im_temporary, $re_kk_temporary) == 0
+    or die "Steffen KK reconstruction failed: $?\n";
+my ($re_mesh, $dynamic_real) = read_table($re_kk_temporary);
+require_same_mesh($mesh, $re_mesh, "KK output");
+my @real = map {
+    my $value = $_ + $eps;
+    isfinite($value) or die "ReDelta overflow after adding $eps_file\n";
+    $value;
+} @$dynamic_real;
+write_table($re_temporary, $mesh, \@real);
+
+# Publish derived components first and the authoritative Gamma table last.
+rename($re_temporary, $re_target) or die "Can't replace $re_target: $!\n";
+rename($im_temporary, $im_target) or die "Can't replace $im_target: $!\n";
+rename($gamma_temporary, $gamma_target) or die "Can't replace $gamma_target: $!\n";
+unlink($re_kk_temporary);
+
+print "causalDelta: clipDelta=$clip param.eps=$eps rows=" . scalar(@gamma) . "\n";
+
+sub usage {
+    return "Usage: $0 [--parameter-file FILE] [--eps-file FILE] " .
+        "[GammaInput [GammaOutput [ReDeltaOutput [ImDeltaOutput]]]]\n";
+}
+
+sub get_numeric_parameter {
+    my ($name, $file) = @_;
+    open(my $fh, "-|", "getparam", $name, $file)
+        or die "Can't run getparam: $!\n";
+    local $/;
+    my $text = <$fh>;
+    my $ok = close($fh);
+    return if !$ok || !defined($text) || $text !~ /\S/;
+    return parse_number($text, "$name in $file");
+}
+
+sub read_scalar {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!\n";
+    local $/;
+    my $text = <$fh>;
+    close($fh) or die "Can't close $file: $!\n";
+    return parse_number($text, $file);
+}
+
+sub parse_number {
+    my ($text, $context) = @_;
+    my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+    defined($text) && $text =~ /\A\s*($number)\s*\z/
+        or die "Invalid numeric value in $context\n";
+    my $value = 0.0 + $1;
+    isfinite($value) or die "Non-finite numeric value in $context\n";
+    return $value;
+}
+
+sub read_table {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!\n";
+    my (@mesh, @values);
+    while (<$fh>) {
+        next if /^\s*(?:#.*)?$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $file at line $.\n";
+        my $omega = parse_number($fields[0], "$file at line $.");
+        my $value = parse_number($fields[1], "$file at line $.");
+        @mesh && $omega <= $mesh[-1]
+            and die "Frequency mesh is not strictly increasing in $file at line $.\n";
+        push(@mesh, $omega);
+        push(@values, $value);
+    }
+    close($fh) or die "Can't close $file: $!\n";
+    @mesh >= 2 or die "Too few rows in $file\n";
+    return (\@mesh, \@values);
+}
+
+sub write_table {
+    my ($file, $mesh, $values) = @_;
+    open(my $fh, ">", $file) or die "Can't write $file: $!\n";
+    for my $index (0 .. $#$mesh) {
+        printf {$fh} "%.17g %.17g\n", $mesh->[$index], $values->[$index];
+    }
+    close($fh) or die "Can't close $file: $!\n";
+}
+
+sub require_same_mesh {
+    my ($reference, $candidate, $context) = @_;
+    @$reference == @$candidate or die "$context mesh-size mismatch\n";
+    for my $index (0 .. $#$reference) {
+        my $scale = max(abs($reference->[$index]), abs($candidate->[$index]), 1.0);
+        abs($reference->[$index] - $candidate->[$index]) <= 1e-12 * $scale
+            or die "$context frequency mismatch at row " . ($index + 1) . "\n";
+    }
+}
+
+sub output_target {
+    my ($path) = @_;
+    return $path unless -l $path;
+    my $target = readlink($path);
+    defined($target) or die "Can't read output symlink $path: $!\n";
+    return $target if File::Spec->file_name_is_absolute($target);
+    return File::Spec->catfile(dirname($path), $target);
+}

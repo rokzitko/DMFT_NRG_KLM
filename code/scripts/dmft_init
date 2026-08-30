@@ -6,102 +6,129 @@ use strict;
 use warnings;
 use File::Copy qw(copy);
 use File::Path qw(remove_tree);
-
-if (!-d "dmft") {
-  mkdir "dmft" or die "Can't create subdir dmft, stopped";
-}
+use FindBin;
+use POSIX qw(isfinite);
 
 -s "param.mu" or -s "param.mu.next"
     or die "Chemical potential param.mu not found.";
+-s "param.eps" or die "Static hybridization shift param.eps not found.";
 -s "param.loop" or die "Parameter file param.loop not found.";
+mkdir("dmft") if !-d "dmft";
+-d "dmft" or die "Can't create subdir dmft.";
 
-if (-s "res.init/READY"
-    && -s "res.init/ReDelta.next.dat" && -s "res.init/ImDelta.next.dat") {
-    copy("res.init/ReDelta.next.dat", "ReDelta.next.dat")
-        or die "Can't recover initial ReDelta: $!";
-    copy("res.init/ImDelta.next.dat", "ImDelta.next.dat")
-        or die "Can't recover initial ImDelta: $!";
+if (-s "res.init/READY") {
+    for my $name (qw(Delta.next.dat ReDelta.next.dat ImDelta.next.dat)) {
+        next if !-s "res.init/$name";
+        copy("res.init/$name", $name) or die "Can't recover initial $name: $!";
+    }
 }
 
-system("scripts/next_aliases") == 0 or die "Preparing next-input aliases failed: $?";
+system("$FindBin::Bin/next_aliases") == 0
+    or die "Preparing next-input aliases failed: $?";
 -s "param.mu.next" or die "Chemical potential param.mu.next not found.";
 
 my $recovered_resample = 0;
 if (-s "mesh.next.dat.resample-ready") {
-    system("scripts/resampleDelta", "ReDelta.next.dat", "ImDelta.next.dat", "mesh.next.dat") == 0
-        or die "Recovering interrupted Delta remeshing failed: $?";
+    system(
+        "$FindBin::Bin/resampleDelta", "Delta.next.dat", "mesh.next.dat",
+        "ReDelta.next.dat", "ImDelta.next.dat",
+    ) == 0 or die "Recovering interrupted Delta remeshing failed: $?";
     $recovered_resample = 1;
 }
 
-my $resample = "true";
+# Explicit legacy ingress: derive Gamma once from ImDelta, then discard both
+# independently supplied components during causal reconstruction below.
+if (!-s "Delta.next.dat" && -s "ImDelta.next.dat") {
+    derive_gamma("ImDelta.next.dat", "Delta.next.dat");
+}
 
-if (-s "ReDelta.next.dat" && -s "ImDelta.next.dat") {
-    # Preexisting initial approximation for hybridization function Delta(z)
-    if ($resample && !$recovered_resample) {
-        system("scripts/resampleDelta", "ReDelta.next.dat", "ImDelta.next.dat", "mesh.next.dat") == 0 or die;
-    } else {
-        if (!-s "mesh.next.dat") {
-            # Ensure mesh.dat is consistent with the mesh used in *DeltaFirst.dat
-            system("cp", "ReDelta.next.dat", "mesh.next.dat") == 0 or die;
-        }
+if (-s "Delta.next.dat") {
+    if (!$recovered_resample) {
+        system(
+            "$FindBin::Bin/resampleDelta", "Delta.next.dat", "mesh.next.dat",
+            "ReDelta.next.dat", "ImDelta.next.dat",
+        ) == 0 or die "Delta remeshing failed: $?";
     }
-} elsif (!-e "ReDelta.next.dat" && !-e "ImDelta.next.dat") {
-    my $initdir = "res.init";
-    if (-e $initdir) {
-        my $cleanup_errors;
-        remove_tree($initdir, {error => \$cleanup_errors});
-        $cleanup_errors //= [];
-        @$cleanup_errors and die "Failed to clean stale $initdir/.\n";
-    }
-    mkdir $initdir or die "Can't create temporary subdir $initdir, stopped";
-    if (!-s "mesh.next.dat") {
-      # If the mesh is not predefined, generate it using settings from param.loop
-      system("scripts/init_mesh >mesh.next.dat") == 0 or die "init_mesh failed: $?";
-    }
-    # Generate imsigma.dat, resigma.dat
-    system("scripts/init_Sigma", $initdir, "mesh.next.dat") == 0 or die;
-    # Generate lattice Green's function approx, reaw.dat, imaw.dat
-    system("scripts/bandDOS", $initdir, "param.mu.next") == 0 or die;
-    # Generate hybridization function, ReDelta.dat, ImDelta.dat
-    system(
-        "scripts/dmftDOS", $initdir, "param.mu.next",
-        "$initdir/ReDelta.next.dat", "$initdir/ImDelta.next.dat",
-    ) == 0 or die;
-    write_text("$initdir/READY", "ready\n");
-    copy("$initdir/ReDelta.next.dat", "ReDelta.next.dat") or die "Can't publish initial ReDelta: $!";
-    copy("$initdir/ImDelta.next.dat", "ImDelta.next.dat") or die "Can't publish initial ImDelta: $!";
-    my $errors;
-    remove_tree($initdir, {error => \$errors});
-    $errors //= [];
-    @$errors and die "Failed to remove initialization staging directory $initdir/.\n";
+} elsif (-e "Delta.next.dat" || -e "ImDelta.next.dat" || -e "ReDelta.next.dat") {
+    die "Restart hybridization files are incomplete or empty.\n";
 } else {
-    die "ReDelta.next.dat and ImDelta.next.dat must either both exist or both be absent.\n";
+    my $initdir = "res.init";
+    remove_directory($initdir) if -e $initdir;
+    mkdir($initdir) or die "Can't create temporary subdir $initdir: $!";
+    if (!-s "mesh.next.dat") {
+        system("$FindBin::Bin/init_mesh >mesh.next.dat") == 0
+            or die "init_mesh failed: $?";
+    }
+    system("$FindBin::Bin/init_Sigma", $initdir, "mesh.next.dat") == 0
+        or die "init_Sigma failed: $?";
+    system("$FindBin::Bin/bandDOS", $initdir, "param.mu.next") == 0
+        or die "bandDOS failed: $?";
+    system(
+        "$FindBin::Bin/dmftDOS-stable", $initdir, "param.mu.next",
+        "$initdir/Delta.raw.dat",
+    ) == 0 or die "Initial DMFT update failed: $?";
+    system(
+        "$FindBin::Bin/causalDelta", "$initdir/Delta.raw.dat",
+        "$initdir/Delta.next.dat", "$initdir/ReDelta.next.dat",
+        "$initdir/ImDelta.next.dat",
+    ) == 0 or die "Initial causal Delta reconstruction failed: $?";
+    write_text("$initdir/READY", "ready\n");
+    for my $name (qw(ReDelta.next.dat ImDelta.next.dat Delta.next.dat)) {
+        copy("$initdir/$name", $name) or die "Can't publish initial $name: $!";
+    }
+    remove_directory($initdir);
 }
 
--s "ReDelta.next.dat" or die;
--s "ImDelta.next.dat" or die;
--s "mesh.next.dat" or die;
-if (-d "res.init") {
-    my $errors;
-    remove_tree("res.init", {error => \$errors});
-    $errors //= [];
-    @$errors and die "Failed to remove res.init/.\n";
-}
-system("scripts/next_aliases") == 0 or die "Preparing next-input aliases failed: $?";
+-s "Delta.next.dat" or die "Authoritative Delta.next.dat not found.";
+-s "ReDelta.next.dat" or die "Derived ReDelta.next.dat not found.";
+-s "ImDelta.next.dat" or die "Derived ImDelta.next.dat not found.";
+-s "mesh.next.dat" or die "Next-cycle mesh not found.";
+remove_directory("res.init") if -d "res.init";
+system("$FindBin::Bin/next_aliases") == 0
+    or die "Preparing next-input aliases failed: $?";
 
-sub read_number {
-    my ($file) = @_;
-    open my $fh, '<', $file or die "Cannot open '$file': $!";
-    local $/; my $s = <$fh>;
-    $s =~ s/^\s+|\s+$//g;
-    $s =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
-        or die "Invalid numeric value in '$file': '$s'";
-    return 0 + $s;
+sub derive_gamma {
+    my ($input, $output) = @_;
+    open(my $in, "<", $input) or die "Can't read $input: $!";
+    my $temporary = "$output.tmp.$$";
+    open(my $out, ">", $temporary) or die "Can't write $temporary: $!";
+    my $previous;
+    while (<$in>) {
+        next if /^\s*(?:#.*)?$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $input at line $.\n";
+        my ($omega, $imaginary) = map { parse_number($_, "$input at line $.") } @fields;
+        defined($previous) && $omega <= $previous
+            and die "Frequency mesh is not strictly increasing in $input at line $.\n";
+        printf {$out} "%.17g %.17g\n", $omega, -$imaginary;
+        $previous = $omega;
+    }
+    close($in) or die "Can't close $input: $!";
+    close($out) or die "Can't close $temporary: $!";
+    -s $temporary or die "No hybridization rows found in $input\n";
+    rename($temporary, $output) or die "Can't replace $output: $!";
+}
+
+sub parse_number {
+    my ($text, $context) = @_;
+    $text =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
+        or die "Invalid numeric value in $context\n";
+    my $value = 0.0 + $text;
+    isfinite($value) or die "Non-finite numeric value in $context\n";
+    return $value;
 }
 
 sub write_text {
     my ($file, $text) = @_;
     open(my $fh, ">", $file) or die "Can't write $file: $!";
-    print $fh $text or die "Can't write $file: $!";
+    print {$fh} $text or die "Can't write $file: $!";
     close($fh) or die "Can't close $file: $!";
+}
+
+sub remove_directory {
+    my ($directory) = @_;
+    my $errors;
+    remove_tree($directory, {error => \$errors});
+    $errors //= [];
+    @$errors and die "Failed to remove $directory/.\n";
 }

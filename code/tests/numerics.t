@@ -33,6 +33,8 @@ subtest "Bethe tables use one normalized edge-refined mesh" => sub {
        "checked-in DOS matches the generator");
     is(read_file("PHI.dat"), read_file("$code/PHI.dat"),
        "checked-in Phi matches the generator");
+    like(read_file("$code/param.loop"), qr/^density_interpolation=steffen$/m,
+         "solver configuration pins Steffen density interpolation");
     is((stat("DOS.dat"))[2] & 0777, 0644, "DOS uses the umask-derived file mode");
     is((stat("PHI.dat"))[2] & 0777, 0644, "Phi uses the umask-derived file mode");
 
@@ -124,6 +126,66 @@ PYTHON
         cmp_ok(abs($actual[$index] - $expected[$index]), "<=", 2e-15,
                "Steffen value agrees at row " . ($index + 1));
     }
+};
+
+subtest "causal Delta is projected and reconstructed from Gamma" => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    chdir($dir) or die $!;
+    write_file("param.loop", "clipDelta=0.1\n");
+    write_file("param.eps", "0.25\n");
+    write_file(
+        "Gamma.raw.dat",
+        "-2 9\n-1 0.05\n-0.5 0.2\n0.5 -3\n1 0.4\n2 8\n",
+    );
+
+    is(system($^X, "$scripts/causalDelta", "Gamma.raw.dat", "Delta.dat",
+              "ReDelta.dat", "ImDelta.dat"), 0,
+       "causal reconstruction succeeds");
+    my @gamma = read_table("Delta.dat");
+    my @imaginary = read_table("ImDelta.dat");
+    my @real = read_table("ReDelta.dat");
+    is_deeply([map { $_->[1] } @gamma], [0, 0.1, 0.2, 0.1, 0.4, 0],
+              "only interior Gamma values are floored");
+    for my $index (0 .. $#gamma) {
+        is($imaginary[$index][0], $gamma[$index][0],
+           "imaginary mesh agrees at row " . ($index + 1));
+        cmp_ok(abs($imaginary[$index][1] + $gamma[$index][1]), "<=", 1e-16,
+               "ImDelta is exactly -Gamma at row " . ($index + 1));
+    }
+
+    is(system("kk", "--interpolation", "steffen", "ImDelta.dat", "dynamic.dat"),
+       0, "independent Steffen KK succeeds");
+    my @dynamic = read_table("dynamic.dat");
+    for my $index (0 .. $#real) {
+        cmp_ok(abs($real[$index][1] - $dynamic[$index][1] - 0.25), "<=", 2e-15,
+               "ReDelta is KK[ImDelta]+param.eps at row " . ($index + 1));
+    }
+
+    my $published_gamma = read_file("Delta.dat");
+    my $published_real = read_file("ReDelta.dat");
+    my $published_imaginary = read_file("ImDelta.dat");
+    write_file("Gamma.raw.dat", "-1 0\n0 broken\n1 0\n");
+    isnt(system($^X, "$scripts/causalDelta", "Gamma.raw.dat", "Delta.dat",
+                "ReDelta.dat", "ImDelta.dat"), 0,
+         "malformed Gamma is rejected");
+    is(read_file("Delta.dat"), $published_gamma,
+       "failed reconstruction preserves Gamma");
+    is(read_file("ReDelta.dat"), $published_real,
+       "failed reconstruction preserves ReDelta");
+    is(read_file("ImDelta.dat"), $published_imaginary,
+       "failed reconstruction preserves ImDelta");
+    write_file(
+        "Gamma.raw.dat",
+        "-2 0\n-1 0.2\n-0.5 0.2\n0.5 0.2\n1 0.2\n2 0\n",
+    );
+    write_file("param.eps", "1e999\n");
+    isnt(system($^X, "$scripts/causalDelta", "Gamma.raw.dat", "Delta.dat",
+                "ReDelta.dat", "ImDelta.dat"), 0,
+         "non-finite param.eps is rejected");
+    is(read_file("Delta.dat"), $published_gamma,
+       "invalid param.eps preserves the published triplet");
+    my @temporary = glob("*.tmp.*");
+    is(scalar(@temporary), 0, "causal reconstruction leaves no temporary files");
 };
 
 subtest "Bubble wrapper pins options and accepts only one scalar" => sub {
@@ -366,49 +428,33 @@ subtest "stable DMFT update evaluates H0 and H1 at the new mu" => sub {
     local $ENV{PATH} = "$dir/bin:$original_path";
     local $ENV{HILB_LOG} = "$dir/hilb.log";
     is(system($^X, "$scripts/dmftDOS-stable", "res", "mu.next",
-              "ReDelta.new", "ImDelta.new"), 0, "stable update succeeds");
+              "Delta.new"), 0, "stable update succeeds");
     is(read_file("hilb.log"), "0 0.25\n1 0.25\n",
        "H0 and H1 use the same requested chemical potential");
-    is(read_file("ReDelta.new"), "0 0\n1 0\n", "real ratio is F/G");
-    is(read_file("ImDelta.new"), "0 -1\n1 -1\n", "imaginary ratio is causal");
+    is(read_file("Delta.new"), "0 1\n1 1\n", "raw update stores Gamma=-Im(F/G)");
 
-    write_file("ReDelta.next.dat", "old real\n");
-    write_file("ImDelta.next.dat", "old imaginary\n");
-    symlink("ReDelta.next.dat", "ReDelta.dat") or die $!;
-    symlink("ImDelta.next.dat", "ImDelta.dat") or die $!;
+    write_file("Delta.next.dat", "old Gamma\n");
+    symlink("Delta.next.dat", "Delta.dat") or die $!;
     is(system($^X, "$scripts/dmftDOS-stable", "res", "mu.next",
-              "ReDelta.dat", "ImDelta.dat"), 0,
+              "Delta.dat"), 0,
        "stable update publishes through compatibility aliases");
-    is(readlink("ReDelta.dat"), "ReDelta.next.dat", "real Delta alias is preserved");
-    is(readlink("ImDelta.dat"), "ImDelta.next.dat", "imaginary Delta alias is preserved");
-    is(read_file("ReDelta.next.dat"), "0 0\n1 0\n", "real alias target is updated");
-    is(read_file("ImDelta.next.dat"), "0 -1\n1 -1\n", "imaginary alias target is updated");
+    is(readlink("Delta.dat"), "Delta.next.dat", "Gamma alias is preserved");
+    is(read_file("Delta.next.dat"), "0 1\n1 1\n", "Gamma alias target is updated");
 
     {
         local $ENV{HILB_EMPTY} = 1;
         isnt(system($^X, "$scripts/dmftDOS-stable", "res", "mu.next",
-                    "ReDelta.dat", "ImDelta.dat"), 0,
+                    "Delta.dat"), 0,
              "empty warning-mode Hilbert output is rejected");
     }
-    is(read_file("ReDelta.next.dat"), "0 0\n1 0\n",
-       "empty output does not replace real Delta");
-    is(read_file("ImDelta.next.dat"), "0 -1\n1 -1\n",
-       "empty output does not replace imaginary Delta");
-
-    {
-        local $ENV{CLIP_DELTA} = "1e999";
-        isnt(system($^X, "$scripts/dmftDOS-stable", "res", "mu.next",
-                    "ReDelta.dat", "ImDelta.dat"), 0,
-             "non-finite clipping parameter is rejected");
-    }
-    is(read_file("ImDelta.next.dat"), "0 -1\n1 -1\n",
-       "invalid clipping parameter does not replace Delta");
+    is(read_file("Delta.next.dat"), "0 1\n1 1\n",
+       "empty output does not replace Gamma");
     write_file("mu.next", "0.25\njunk\n");
     isnt(system($^X, "$scripts/dmftDOS-stable", "res", "mu.next",
-                "ReDelta.dat", "ImDelta.dat"), 0,
-         "corrupt chemical-potential input is rejected");
-    is(read_file("ImDelta.next.dat"), "0 -1\n1 -1\n",
-       "corrupt chemical potential does not replace Delta");
+                "Delta.dat"), 0,
+          "corrupt chemical-potential input is rejected");
+    is(read_file("Delta.next.dat"), "0 1\n1 1\n",
+       "corrupt chemical potential does not replace Gamma");
 };
 
 subtest "warning-mode convergence estimates continue" => sub {
@@ -451,6 +497,21 @@ subtest "warning-mode convergence estimates continue" => sub {
                     "--output-dir", "."), 0,
              "non-finite best estimates remain fatal");
     }
+};
+
+subtest "Delta support check removes only the represented floor" => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    chdir($dir) or die $!;
+    write_file("param.loop", "bandrescale=0.5\nclipDelta=0.1\n");
+    write_file("Delta.dat", "-2 0\n-1 0.1\n1 0.1\n2 0\n");
+    is(system($^X, "$scripts/checkDelta"), 0,
+       "pure numerical floor outside the solver window is ignored");
+    my @floor_temporary = glob(".Delta.floor.tmp.*");
+    is(scalar(@floor_temporary), 0, "floor integration table is removed");
+
+    write_file("Delta.dat", "-2 0\n-1 0.2\n1 0.2\n2 0\n");
+    isnt(system($^X, "$scripts/checkDelta"), 0,
+         "physical hybridization weight outside the window remains fatal");
 };
 
 subtest "KK and optical sum-rule utilities use configured Steffen tools" => sub {
@@ -550,9 +611,10 @@ subtest "installed Hilbert and Bubble backends complete warning-mode profiles" =
     symlink("$code/DOS.dat", "DOS.dat") or die $!;
     symlink("$code/PHI.dat", "PHI.dat") or die $!;
     write_file("param.loop", "clipDelta=1e-6\nclipSigma=1e-12\n");
+    write_file("param.eps", "0\n");
     write_file("param.mu", "0\n");
     my ($real_sigma, $imaginary_sigma) = ("", "");
-    for my $index (-200 .. 200) {
+    for my $index (-200 .. -1, 1 .. 200) {
         my $omega = $index / 100;
         $real_sigma .= sprintf("%.17g 0\n", $omega);
         $imaginary_sigma .= sprintf("%.17g -0.05\n", $omega);
@@ -563,15 +625,28 @@ subtest "installed Hilbert and Bubble backends complete warning-mode profiles" =
     is(system($^X, "$scripts/bandDOS", ".", "param.mu"), 0,
        "real analytic Hilbert backend produces a causal lattice spectrum");
     is(system($^X, "$scripts/dmftDOS-stable", ".", "param.mu",
+              "Delta.raw.dat"), 0,
+       "real H0/H1 transforms produce a raw Gamma update");
+    is(system($^X, "$scripts/causalDelta", "Delta.raw.dat", "Delta.dat",
               "ReDelta.dat", "ImDelta.dat"), 0,
-       "real H0/H1 transforms produce a stable hybridization");
+       "raw Gamma is projected into a causal hybridization");
     my @spectrum = read_table("imaw.dat");
+    my @gamma = read_table("Delta.dat");
     my @hybridization = read_table("ImDelta.dat");
-    is(scalar(@spectrum), 401, "Hilbert output preserves the self-energy mesh");
-    is(scalar(@hybridization), 401,
+    is(scalar(@spectrum), 400, "Hilbert output preserves the self-energy mesh");
+    is(scalar(@hybridization), 400,
        "stable hybridization preserves the self-energy mesh");
     ok(!grep({ $_->[1] < 0 } @spectrum), "lattice spectrum is nonnegative");
-    ok(!grep({ $_->[1] >= 0 } @hybridization), "hybridization remains causal");
+    is($gamma[0][1], 0, "lower Gamma support guard is zero");
+    is($gamma[-1][1], 0, "upper Gamma support guard is zero");
+    ok(!grep({ $_->[1] < 1e-6 } @gamma[1 .. $#gamma - 1]),
+       "interior Gamma respects clipDelta");
+    my $consistent_imaginary = 1;
+    for my $index (0 .. $#hybridization) {
+        $consistent_imaginary = 0
+            if abs($hybridization[$index][1] + $gamma[$index][1]) > 1e-14;
+    }
+    ok($consistent_imaginary, "imaginary hybridization equals -Gamma");
 
     my @standard_options = Bubble::bubble_options(
         epsabs => "1e-9", epsrel => "1e-8"

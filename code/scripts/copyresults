@@ -13,7 +13,7 @@ chomp($iter);
 $iter =~ /\A\d+\z/ && $iter >= 1 or die "Invalid iteration: $iter\n";
 -d $stage or die "Result staging directory not found: $stage\n";
 
-# Broyden mixing requires these per-iteration snapshots, so $track must be 1.
+# Broyden mixing requires the per-iteration Gamma snapshots, so $track must be 1.
 my $track = 1; # 0=do not store copies in dmft/, 1=track DMFT iteration by storing copies of all results in dmft/.
 
 chomp(my $tr = `getparam track param.loop`);
@@ -47,6 +47,8 @@ system("mkdir -p dmft") == 0 or die; # Ensure dmft/ exists.
 archive("c-imG.dat", "c-imG.dat");
 archive("c-self.dat", "c-self.dat");
 archive($_, $_) for qw(imsigma.dat resigma.dat imaw.dat reaw.dat);
+archive("Delta.used.dat", "Delta.dat");
+# Derived components are retained for diagnostics, not as Broyden state.
 archive("ReDelta.used.dat", "ReDelta.dat");
 archive("ImDelta.used.dat", "ImDelta.dat");
 archive("param.mu.used", "param.mu");
@@ -74,5 +76,3 @@ for my $fn (qw(custom custom.avg customfdm customfdm.avg)) {
         archive($fn, $fn);
     }
 }
-
-archive("Delta.used.dat", "Delta.dat");

@@ -8,9 +8,8 @@ use Math::Complex;
 
 my $result_dir = @ARGV ? shift @ARGV : "res";
 my $mu_file = @ARGV ? shift @ARGV : "param.mu";
-my $re_output = @ARGV ? shift @ARGV : "ReDelta.dat";
-my $im_output = @ARGV ? shift @ARGV : "ImDelta.dat";
-@ARGV and die "Usage: $0 [result_dir [mu_file [re_output [im_output]]]]\n";
+my $gamma_output = @ARGV ? shift @ARGV : "Delta.raw.dat";
+@ARGV and die "Usage: $0 [result_dir [mu_file [GammaOutput]]]\n";
 
 # Read a column from a file
 sub readcol {
@@ -30,15 +29,7 @@ sub readcol {
 
 my $pi = pi;
 
-# Clipping of Im part of Delta; NRG requires the hybridization funciton Gamma=-Im(Delta) to be strictly positive!
-chomp(my $imclip = `getparam clipDelta param.loop`);
-if ($imclip eq "") {
-  chomp($imclip = `getparam clip param.loop`); # fall back
-}
-$imclip ne "" or die;
-$imclip > 0.0 or die;
-
-print "dmftDOS - imclip=$imclip\n";
+print "dmftDOS\n";
 
 # Chemical potential
 open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
@@ -59,8 +50,7 @@ scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
 scalar(@omega) == scalar(@imS) or die "ImSigma mesh mismatch.";
 scalar(@omega) == scalar(@reS) or die "ReSigma mesh mismatch.";
 
-open(R, ">", $re_output) or die;
-open(I, ">", $im_output) or die;
+open(my $gamma_fh, ">", $gamma_output) or die;
 
 my $len = @omega;
 for (my $i = 0; $i < $len; $i++) {
@@ -77,15 +67,7 @@ for (my $i = 0; $i < $len; $i++) {
     # Delta(z) = z+mu-G_0^-1
     my $Delta = $o + $mu - $g01;
 
-    my $re = Re($Delta); # stored in ReDelta.dat
-    my $im = Im($Delta); # stored in ImDelta.dat
-
-    # Perform ImDelta.dat clipping to ensure hybridization function (Gamma=-ImDelta) is positive (!)
-    if ($im > -$imclip) {
-        $im = -$imclip;
-    }
-    $im < 0.0 or die; # contract
-
-    print R "$o $re\n";
-    print I "$o $im\n";
+    my $gamma = -Im($Delta);
+    print {$gamma_fh} "$o $gamma\n";
 }
+close($gamma_fh) or die "Can't close $gamma_output: $!";

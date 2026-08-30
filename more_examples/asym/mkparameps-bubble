@@ -3,10 +3,8 @@ set -e
 
 # Ensure that param.eps contains the band energy (average energy of DOS.dat)
 # This information about the shift needs to be supplied to the NRG separately,
-# because NRG only considers only the imaginary (spectral function) part of the
-# hybridization, ImDelta, but not the overall vertical shift contained in ReDelta.
-# In other words, if there is a difference between actual ReDelta and kk[ImDelta],
-# this needs to be encoded in param.eps.
+# because Gamma=-ImDelta determines only the dynamic part. The causal real part
+# is defined as kk[ImDelta]+param.eps.
 # Rok Zitko, rok.zitko@ijs.si, Aug 2026
 
 temporary="param.eps-bubble.tmp.$$"

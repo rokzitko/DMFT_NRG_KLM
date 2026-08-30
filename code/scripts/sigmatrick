@@ -59,17 +59,18 @@ defined $mu or die "Chemical potential not found in $mu_file";
 chomp($mu);
 print "mu=$mu\n";
 
-# Note that the required shift is already contained in ReDelta.dat; no shift
-# needs to be read from a file!
+# ReDelta is the causal reconstruction of authoritative Gamma plus param.eps.
 
-my $imdelta_file = $result_dir eq "." && -s "ImDelta.used.dat"
-    ? "ImDelta.used.dat" : "$result_dir/ImDelta.dat";
+my $gamma_file = $result_dir eq "." && -s "Delta.used.dat"
+    ? "Delta.used.dat"
+    : (-s "$result_dir/Delta.used.dat" ? "$result_dir/Delta.used.dat" : "$result_dir/Delta.dat");
 my $redelta_file = $result_dir eq "." && -s "ReDelta.used.dat"
     ? "ReDelta.used.dat" : "$result_dir/ReDelta.dat";
-my @imdelta = readcol($imdelta_file, 2);
+my @gamma = readcol($gamma_file, 2);
+my @imdelta = map { -$_ } @gamma;
 my @redelta = readcol($redelta_file, 2);
 
-scalar(@omega) == scalar(@imdelta) or die "ImDelta mesh mismatch.";
+scalar(@omega) == scalar(@gamma) or die "Delta mesh mismatch.";
 scalar(@omega) == scalar(@redelta) or die "ReDelta mesh mismatch.";
 
 my $selffn = "$result_dir/c-self.dat";

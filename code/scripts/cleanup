@@ -8,6 +8,7 @@ scripts/cleanup_temp
 if [[ "$1" != "keep" ]]; then
   rm -f ImDelta.dat ReDelta.dat Delta.dat mesh.dat
   rm -f ImDelta.next.dat ReDelta.next.dat Delta.next.dat mesh.next.dat
+  rm -f Delta*.resampled Delta*.resampled.raw
   rm -f ReDelta*.resampled ImDelta*.resampled
   rm -f mesh*.new mesh*.base mesh*.old mesh*.resample-ready
 fi

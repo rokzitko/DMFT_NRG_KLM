@@ -17,8 +17,9 @@ if (-e "res/READY" || -e "res/READY.complete") {
     exit 0;
 }
 if (-d "res" && (-s "res/MIGRATED"
-    || (-s "res/c-imG.dat" && -s "res/ReDelta.dat"
-    && !-e "res/ReDelta.used.dat"))) {
+    || (-s "res/c-imG.dat"
+    && (-s "res/Delta.dat" || -s "res/ImDelta.dat")
+    && !-e "res/Delta.used.dat"))) {
     system("scripts/migrate_legacy_res") == 0
         or die "Migrating legacy res/ results failed: $?";
 }
@@ -34,11 +35,8 @@ if (-d "res") {
 
 system("scripts/dmft_init") == 0 or die "dmft_init failed: $?";
 
-system("scaley -1 ImDelta.next.dat >Delta.next.dat") == 0 or die;
 -s "Delta.next.dat" or die("Hybridisation function not found, stopped");
 system("scripts/next_aliases") == 0 or die "Preparing next-input aliases failed: $?";
-system("scripts/ReDelta_shift", "ReDelta.next.dat") == 0 or die;
--s "param.shift" or die;
 system("scripts/checkDelta") == 0 or die;
 
 chomp(my $Nz = `getparam Nz param.loop`);

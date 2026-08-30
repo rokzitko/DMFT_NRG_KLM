@@ -439,8 +439,10 @@ def plot_convergence(context: RunContext) -> None:
 def plot_hybridization(context: RunContext) -> None:
     delta = context.table("Delta.dat", columns=2, minimum_rows=3, increasing_x=True)
     omega, gamma = delta.T
-    if np.any(gamma <= 0.0):
-        raise PlotError("Delta.dat must contain positive Gamma=-Im Delta")
+    if gamma[0] != 0.0 or gamma[-1] != 0.0 or np.any(gamma[1:-1] <= 0.0):
+        raise PlotError(
+            "Delta.dat must contain positive interior Gamma with zero outer guards"
+        )
     support_limits = significant_support_limits(omega, gamma, 1e-3)
 
     figure, axes = plt.subplots(1, 2, figsize=(11.2, 4.2), layout="constrained")
@@ -451,7 +453,7 @@ def plot_hybridization(context: RunContext) -> None:
     axes[0].set_title(r"$\Gamma>10^{-3}\Gamma_{\max}$ window")
     style_axis(axes[0])
 
-    axes[1].plot(omega, gamma, color=BLUE)
+    axes[1].plot(omega[1:-1], gamma[1:-1], color=BLUE)
     axes[1].axhline(
         context.parameters.clip_delta,
         color=ORANGE,

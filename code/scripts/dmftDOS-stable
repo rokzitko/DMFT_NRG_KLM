@@ -13,9 +13,8 @@ my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 
 my $result_dir = @ARGV ? shift @ARGV : "res";
 my $mu_file = @ARGV ? shift @ARGV : "param.mu";
-my $re_output = @ARGV ? shift @ARGV : "ReDelta.dat";
-my $im_output = @ARGV ? shift @ARGV : "ImDelta.dat";
-@ARGV and die "Usage: $0 [result_dir [mu_file [re_output [im_output]]]]\n";
+my $gamma_output = @ARGV ? shift @ARGV : "Delta.raw.dat";
+@ARGV and die "Usage: $0 [result_dir [mu_file [GammaOutput]]]\n";
 
 sub read_table {
     my ($filename) = @_;
@@ -42,14 +41,6 @@ sub read_table {
     return (\@mesh, \@values);
 }
 
-# Clipping of Im part of Delta; NRG requires Gamma=-Im(Delta) to be strictly positive.
-chomp(my $imclip = `getparam clipDelta param.loop`);
-if ($imclip eq "") {
-    chomp($imclip = `getparam clip param.loop`); # fall back
-}
-$imclip = parse_scalar($imclip, "clipDelta");
-$imclip > 0.0 or die;
-
 chomp(my $sigma_clip = `getparam clipSigma param.loop`);
 if ($sigma_clip eq "") {
     chomp($sigma_clip = `getparam clip param.loop`); # fall back
@@ -69,20 +60,18 @@ defined $mu or die "Chemical potential not found in $mu_file";
 chomp($mu);
 $mu = parse_scalar($mu, $mu_file);
 
-print "dmftDOS-stable - mu=$mu imclip=$imclip sigma_clip=$sigma_clip\n";
+print "dmftDOS-stable - mu=$mu sigma_clip=$sigma_clip\n";
 
 my $prefix = "$result_dir/";
 my $reGtmp = "$result_dir/reG.dat.TMP";
 my $imGtmp = "$result_dir/imG.dat.TMP";
 my $reFtmp = "$result_dir/reF.dat.TMP";
 my $imFtmp = "$result_dir/imF.dat.TMP";
-my $re_target = output_target($re_output);
-my $im_target = output_target($im_output);
-my $re_publish = "$re_target.tmp.$$";
-my $im_publish = "$im_target.tmp.$$";
+my $gamma_target = output_target($gamma_output);
+my $gamma_publish = "$gamma_target.tmp.$$";
 END {
     unlink(grep { defined($_) && -e $_ }
-           ($reGtmp, $imGtmp, $reFtmp, $imFtmp, $re_publish, $im_publish));
+           ($reGtmp, $imGtmp, $reFtmp, $imFtmp, $gamma_publish));
 }
 unlink($reGtmp, $imGtmp, $reFtmp, $imFtmp);
 
@@ -111,8 +100,7 @@ require_same_mesh($omega, $reGomega, "ReG output");
 require_same_mesh($omega, $imFomega, "ImF output");
 require_same_mesh($omega, $reFomega, "ReF output");
 
-open(R, ">", $re_publish) or die "Can't write $re_publish: $!";
-open(I, ">", $im_publish) or die "Can't write $im_publish: $!";
+open(my $gamma_fh, ">", $gamma_publish) or die "Can't write $gamma_publish: $!";
 
 my $len = @$omega;
 for (my $i = 0; $i < $len; $i++) {
@@ -122,24 +110,14 @@ for (my $i = 0; $i < $len; $i++) {
 
     # Stable hybridisation-function estimator.
     my $Delta = $F/$G;
-    my $re = Re($Delta);
-    my $im = Im($Delta);
-    isfinite($re) && isfinite($im)
+    my $gamma = -Im($Delta);
+    isfinite($gamma)
         or die "Non-finite hybridization at frequency $o\n";
-
-    if ($im > -$imclip) {
-        $im = -$imclip;
-    }
-    $im < 0.0 or die; # contract
-
-    print R "$o $re\n";
-    print I "$o $im\n";
+    print {$gamma_fh} "$o $gamma\n";
 }
 
-close(R) or die "Can't close $re_publish: $!";
-close(I) or die "Can't close $im_publish: $!";
-rename($re_publish, $re_target) or die "Can't replace $re_target: $!";
-rename($im_publish, $im_target) or die "Can't replace $im_target: $!";
+close($gamma_fh) or die "Can't close $gamma_publish: $!";
+rename($gamma_publish, $gamma_target) or die "Can't replace $gamma_target: $!";
 
 sub output_target {
     my ($path) = @_;

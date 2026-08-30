@@ -209,11 +209,11 @@ def write_scalar(path, value):
         raise BroydenError(f"Failed to write {path}: {exc}") from exc
 
 
-def input_re_path(history_dir, iteration):
-    return history_dir / f"{iteration}-ReDelta.dat"
+def input_delta_path(history_dir, iteration):
+    return history_dir / f"{iteration}-Delta.dat"
 
 
-def input_im_path(history_dir, iteration):
+def legacy_input_im_path(history_dir, iteration):
     return history_dir / f"{iteration}-ImDelta.dat"
 
 
@@ -221,11 +221,11 @@ def input_mu_path(history_dir, iteration):
     return history_dir / f"{iteration}-param.mu"
 
 
-def raw_re_path(history_dir, iteration):
-    return history_dir / f"{iteration}-ReDelta.raw.dat"
+def raw_delta_path(history_dir, iteration):
+    return history_dir / f"{iteration}-Delta.raw.dat"
 
 
-def raw_im_path(history_dir, iteration):
+def legacy_raw_im_path(history_dir, iteration):
     return history_dir / f"{iteration}-ImDelta.raw.dat"
 
 
@@ -238,10 +238,8 @@ def required_history_paths(history_dir, iteration, mix_delta, control_mu):
     if mix_delta:
         paths.extend(
             (
-                input_re_path(history_dir, iteration),
-                input_im_path(history_dir, iteration),
-                raw_re_path(history_dir, iteration),
-                raw_im_path(history_dir, iteration),
+                input_delta_path(history_dir, iteration),
+                raw_delta_path(history_dir, iteration),
             )
         )
     if control_mu:
@@ -252,6 +250,29 @@ def required_history_paths(history_dir, iteration, mix_delta, control_mu):
             )
         )
     return paths
+
+
+def migrate_legacy_delta_history(history_dir, iteration):
+    migrated = []
+    for candidate in range(1, iteration + 1):
+        conversions = (
+            (
+                legacy_input_im_path(history_dir, candidate),
+                input_delta_path(history_dir, candidate),
+            ),
+            (
+                legacy_raw_im_path(history_dir, candidate),
+                raw_delta_path(history_dir, candidate),
+            ),
+        )
+        for legacy, destination in conversions:
+            if destination.is_file() or not legacy.is_file():
+                continue
+            mesh, imaginary = load_table(legacy)
+            write_table(destination, mesh, -imaginary)
+            migrated.append((legacy, destination))
+    for legacy, destination in migrated:
+        print(f"Migrated legacy Broyden history {legacy} -> {destination}")
 
 
 def history_indices(history_dir, iteration, mix_delta, control_mu, maximum):
@@ -287,12 +308,10 @@ def build_history(history_dir, indices, mesh, mix_delta, control_mu, goal):
         residual_parts = []
 
         if mix_delta:
-            input_re = interpolate(input_re_path(history_dir, iteration), mesh)
-            input_im = interpolate(input_im_path(history_dir, iteration), mesh)
-            output_re = interpolate(raw_re_path(history_dir, iteration), mesh)
-            output_im = interpolate(raw_im_path(history_dir, iteration), mesh)
-            input_parts.extend((input_re, input_im))
-            residual_parts.extend((output_re - input_re, output_im - input_im))
+            input_delta = interpolate(input_delta_path(history_dir, iteration), mesh)
+            output_delta = interpolate(raw_delta_path(history_dir, iteration), mesh)
+            input_parts.append(input_delta)
+            residual_parts.append(output_delta - input_delta)
 
         if control_mu:
             input_mu = load_scalar(input_mu_path(history_dir, iteration))
@@ -362,7 +381,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Apply modified Johnson-Broyden mixing to the current DMFT iteration"
     )
-    parser.add_argument("--delta", action="store_true", help="mix ReDelta and ImDelta")
+    parser.add_argument("--delta", action="store_true", help="mix Gamma=-ImDelta")
     parser.add_argument("--mu", action="store_true", help="control param.mu")
     parser.add_argument(
         "--workdir",
@@ -442,24 +461,14 @@ def main():
 
     mesh = None
     if arguments.delta:
-        raw_re_source = arguments.workdir / "ReDelta.dat.NEW-common"
-        raw_im_source = arguments.workdir / "ImDelta.dat.NEW-common"
-        raw_re_history = raw_re_path(arguments.history_dir, iteration)
-        raw_im_history = raw_im_path(arguments.history_dir, iteration)
-        atomic_copy(raw_re_source, raw_re_history)
-        atomic_copy(raw_im_source, raw_im_history)
-        mesh, _ = load_table(raw_re_history)
-        im_mesh, _ = load_table(raw_im_history)
-        old_mesh, _ = load_table(
-            arguments.workdir / "ReDelta.dat.OLD-common"
-        )
-        old_im_mesh, _ = load_table(
-            arguments.workdir / "ImDelta.dat.OLD-common"
-        )
-        if not same_mesh(mesh, im_mesh) or not same_mesh(mesh, old_mesh):
-            raise BroydenError("ReDelta/ImDelta OLD/NEW common meshes do not agree")
-        if not same_mesh(mesh, old_im_mesh):
-            raise BroydenError("ReDelta/ImDelta OLD/NEW common meshes do not agree")
+        raw_source = arguments.workdir / "Delta.dat.NEW-common"
+        raw_history = raw_delta_path(arguments.history_dir, iteration)
+        atomic_copy(raw_source, raw_history)
+        mesh, _ = load_table(raw_history)
+        old_mesh, _ = load_table(arguments.workdir / "Delta.dat.OLD-common")
+        if not same_mesh(mesh, old_mesh):
+            raise BroydenError("Gamma OLD/NEW common meshes do not agree")
+        migrate_legacy_delta_history(arguments.history_dir, iteration)
 
     maximum = get_max_history()
     indices = history_indices(
@@ -478,7 +487,7 @@ def main():
         goal,
     )
 
-    delta_size = 2 * len(mesh) if arguments.delta else 0
+    delta_size = len(mesh) if arguments.delta else 0
     initial_factors = np.empty(inputs.shape[1])
     if arguments.delta:
         initial_factors[:delta_size] = alpha
@@ -493,14 +502,9 @@ def main():
 
     if arguments.delta:
         write_table(
-            arguments.workdir / "ReDelta.dat.TEMP",
+            arguments.workdir / "Delta.dat.TEMP",
             mesh,
-            mixed[: len(mesh)],
-        )
-        write_table(
-            arguments.workdir / "ImDelta.dat.TEMP",
-            mesh,
-            mixed[len(mesh) : delta_size],
+            mixed[:delta_size],
         )
 
     if arguments.mu:

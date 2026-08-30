@@ -10,12 +10,12 @@ Features:
 - improved estimator for the self-energy (Kugel, 2022)
 - support for arbitrary density of states (tabulated in file DOS.dat)
 - robust band occupancy control by shifting chemical potential mu
-- simple mixing (implemented at the level of hybridisation function)
+- linear or Broyden mixing of the hybridization spectral density
 - adaptive grid for better capturing sharp spectral features
 - transport calculation using external [bubble](https://github.com/rokzitko/bubble) code
 
 Requirements:
-- NRG Ljubljana 2026.09, including the associated tools (`hilb`, `kk`,
+- NRG Ljubljana 2026.09 at commit `b3a800e0` or later, including the associated tools (`hilb`, `kk`,
   `integ`, `adapt`, `nrgchain`, `broaden`, `resample`, `matrix`, `diag`,
   `unitary`)
 - associated scripts (getparam, scaley, getiter, newiter, subtracty...), in github repo rokzitko/nrgljubljana under scripts/.
@@ -233,6 +233,33 @@ the normalized-DOS identity `H_1(z)=zH_0(z)-1` gives the stable update
 \Delta^R(z)=\frac{F(z)}{G(z)}.
 ```
 
+Only the spectral part of this raw complex update enters the iterative state:
+
+```math
+\Gamma_\Delta(\omega)=-\operatorname{Im}\Delta^R(\omega)\geq 0.
+```
+
+`Delta.dat` stores `Gamma_Delta` directly, with no factor of `1/pi`. Its
+Lehmann density is therefore `Gamma_Delta/pi`. After remeshing and mixing, the
+complex hybridization is reconstructed from this one authoritative table:
+
+```math
+\begin{aligned}
+\operatorname{Im}\Delta^R(\omega)&=-\Gamma_\Delta(\omega),\\
+\operatorname{Re}\Delta^R(\omega)&=\texttt{param.eps}
++\frac{1}{\pi}\,\mathcal P\!\int dE\,
+\frac{\Gamma_\Delta(E)}{\omega-E}.
+\end{aligned}
+```
+
+The implementation obtains the dynamic real part by running Steffen `kk` on
+`ImDelta=-Gamma`; running it on positive Gamma would reverse the sign. Linear
+and Broyden mixing both operate on Gamma alone. Projection and reconstruction
+occur only after the mixed result has been formed, so `ReDelta` and `ImDelta`
+cannot drift independently. `param.eps` must contain the first moment of the
+normalized bare `DOS.dat`; it is zero for the checked-in particle-hole
+symmetric Bethe DOS.
+
 NRG Ljubljana materializes the selected Steffen interpolant as interval
 polynomials and integrates both transforms analytically. Thus `H_0` and `H_1`
 use exactly the same represented DOS and satisfy their moment identity up to
@@ -252,9 +279,9 @@ already been multiplied by `-1/pi`.  The distinction is important.
 | `c-imF.dat`, `c-imI.dat` | `-Im F^R/pi`, `-Im I^R/pi` |
 | `c-reF.dat`, `c-reI.dat` | `-Re F^R/pi`, `-Re I^R/pi` |
 | `imsigma.dat`, `resigma.dat` | Actual `Im Sigma^R`, `Re Sigma^R` |
-| `ImDelta.used.dat`, `ReDelta.used.dat` | Delta used to compute the current result files |
-| `ImDelta.next.dat`, `ReDelta.next.dat` | Delta prepared for the next DMFT cycle |
-| `Delta.used.dat`, `Delta.next.dat` | Corresponding `Gamma=-Im Delta^R >= 0` NRG inputs |
+| `Delta.used.dat`, `Delta.next.dat` | Authoritative `Gamma_Delta=-Im Delta^R >= 0` NRG inputs |
+| `ImDelta.used.dat`, `ImDelta.next.dat` | Derived `-Gamma_Delta` on the same mesh |
+| `ReDelta.used.dat`, `ReDelta.next.dat` | Derived Steffen KK transform plus `param.eps` |
 | `self.dat` | Reconstructed impurity spectral function, not the self-energy |
 | `ldos.dat` | Interacting local DOS written by `bubble`; distinct from uppercase `DOS.dat` |
 | `cond.opt-PHI.dat` | `Omega`, `sigma_code(Omega)` |
@@ -279,7 +306,10 @@ writers in one calculation directory are not supported. It uses ordinary
 relative symlinks and repeatable file copies, without locks or Linux-specific
 filesystem operations. A persistent `res/`
 directory made by an older version is migrated automatically on the next
-`START`.
+`START`. For a restart, `Delta.next.dat`, `param.eps`, and `param.mu.next` are
+the irreducible inputs. Derived Re/Im files are rebuilt. When no Gamma table is
+available, a legacy ImDelta table can be converted once; a legacy independent
+ReDelta table is never treated as authoritative.
 It is zero on a freshly generated mesh but can contain copied hybridization
 values after a restart.  Most other numerical tables are whitespace-separated
 and have no header.
@@ -603,13 +633,17 @@ restored in these files.
 - `clipSigma=1e-12` is the minimum `-Im Sigma` used by `sigmatrick`, `hilb`,
   and every Bubble caller. It is a numerical causality floor, not a physical
   scattering rate.
-- `clipDelta=1e-6` is the minimum `Gamma=-Im Delta` used for NRG bath input.
-  It is applied to the raw stable update and after mixing.
+- `clipDelta=1e-6` is the minimum interior `Gamma=-Im Delta` used for NRG bath
+  input. Projection is applied after initialization, remeshing, or mixing. The
+  first and last rows are exact zero support guards, not floor-valued bath
+  points.
 - Tabulated `hilb` and all `kk` calls use analytic interval-polynomial Cauchy
   transforms. QAG tolerances, workspace sizes, and rules do not apply to these
   paths.
-- Delta remeshing and KK/Hilbert input interpolation use Steffen. Extrapolation
-  is disabled, and resampled tables are written with 17 significant digits.
+- Delta remeshing and KK/Hilbert input interpolation use Steffen. The
+  `density_interpolation=steffen` solver setting also makes `adapt` and
+  `nrgchain` integrate the same represented Gamma. Extrapolation is disabled,
+  and resampled tables are written with 17 significant digits.
 - Bubble 1.14 uses Steffen for both self-energy components and tabulated
   kernels, a 61-point QAG rule, workspace 1000, and warning-on-error behavior.
 - Standard DC and lattice-DOS Bubble calls request `epsabs=1e-9`. The
@@ -621,9 +655,9 @@ restored in these files.
   requires self-energy coverage over `[-30T-Omega,30T+Omega]`.
 - The occupied kinetic-energy call integrates from the first self-energy
   frequency to `30T`.
-- `kk` treats its input as having finite support. Its endpoint rows use the
-  finite endpoint-subtracted convention, so broadened endpoint values should
-  be negligible; extend the mesh when they are not.
+- `kk` treats its input as having finite support. Causal Delta reconstruction
+  forces its two outer support guards to zero before the endpoint-subtracted
+  transform; choose a wide enough mesh that this truncation is negligible.
 
 The convergence norm resamples both spectra with Steffen and uses
 `integ -i steffen -a` with GK61, `epsabs=1e-10`, `epsrel=1e-9`, and
@@ -642,6 +676,9 @@ boundaries, or the boundary term in the general sum rule must be retained.
 
 - [`bubble` documentation](https://github.com/rokzitko/bubble)
 - [`code/mkDOS`](code/mkDOS) and [`code/mkPHI`](code/mkPHI)
+- [`code/scripts/causalDelta`](code/scripts/causalDelta)
+- [`code/scripts/dmft_done`](code/scripts/dmft_done) and
+  [`code/scripts/broyden.py`](code/scripts/broyden.py)
 - [`code/scripts/ekin`](code/scripts/ekin)
 - [`code/scripts/cond.opt-PHI`](code/scripts/cond.opt-PHI)
 - [`code/scripts/bbl-PHI`](code/scripts/bbl-PHI)

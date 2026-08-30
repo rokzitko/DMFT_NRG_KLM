@@ -1,8 +1,7 @@
 #!/usr/bin/env perl
-# Extract the overall energy shift encoded in ReDelta.dat; it is extracted as the difference
-# between the y-coordinate of first and last line in ReDelta.dat.
-# This is generally used only as a diagnostic. param.eps contains the DOS first momentum (asymptotic
-# ReDelta shift already embedded in DOS.dat).
+# Estimate the endpoint-average shift in ReDelta.dat as a diagnostic.
+# The DMFT loop does not use this estimate: param.eps is the authoritative
+# static shift added during causal reconstruction.
 # Rok Zitko, Aug 2026
 
 use strict;

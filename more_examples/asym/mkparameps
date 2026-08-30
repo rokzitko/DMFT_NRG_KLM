@@ -1,11 +1,9 @@
 #!/bin/bash
 # Ensure that param.eps contains the band energy (average energy of DOS.dat)
 # This information about the shift needs to be supplied to the NRG separately,
-# because NRG only considers only the imaginary (spectral function) part of the
-# hybridization, ImDelta, but not the overall vertical shift contained in ReDelta.
-# In other words, if there is a difference between actual ReDelta and kk[ImDelta],
-# this needs to be encoded in param.eps. This is precisely the value obtained
-# using "integrateeps" (provided that DOS.dat is correctly normalized to 1).
+# because Gamma=-ImDelta determines only the dynamic part. The causal real part
+# is defined as kk[ImDelta]+param.eps. For a normalized DOS, this constant is the
+# first moment obtained with integrateeps.
 # Rok Zitko, rok.zitko@ijs.si, Aug 2026
 
 integrateeps DOS.dat >param.eps

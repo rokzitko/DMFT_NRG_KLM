@@ -1,18 +1,22 @@
 #!/usr/bin/env perl
-# Remesh input ReDelta.dat and ImDelta.dat
+# Remesh authoritative Gamma and reconstruct the complex hybridization.
 # Rok Zitko, Aug 2026
 
 use strict;
 use warnings;
 use File::Copy qw(copy);
+use FindBin;
 
 my $allowextrapolation = 0;
 
+my $gammafile = @ARGV ? shift @ARGV : "Delta.dat";
+my $meshfile = @ARGV ? shift @ARGV : "mesh.dat";
 my $refile = @ARGV ? shift @ARGV : "ReDelta.dat";
 my $imfile = @ARGV ? shift @ARGV : "ImDelta.dat";
-my $meshfile = @ARGV ? shift @ARGV : "mesh.dat";
-@ARGV and die "Usage: $0 [ReDelta [ImDelta [mesh]]]\n";
+@ARGV and die "Usage: $0 [Gamma [mesh [ReDelta [ImDelta]]]]\n";
 
+my $gammaraw = "$gammafile.resampled.raw";
+my $gammanew = "$gammafile.resampled";
 my $renew = "$refile.resampled";
 my $imnew = "$imfile.resampled";
 my $meshnew = "$meshfile.new";
@@ -20,18 +24,26 @@ my $meshbase = "$meshfile.base";
 my $meshold = "$meshfile.old";
 my $ready = "$meshfile.resample-ready";
 
-if (-s $ready && -s $renew && -s $imnew && -s $meshnew) {
-    publish_resampled($renew, $imnew, $meshnew, $refile, $imfile, $meshfile);
-    unlink($renew, $imnew, $meshnew, $meshbase, $meshold, $ready);
+if (-s $ready && -s $gammanew && -s $renew && -s $imnew && -s $meshnew) {
+    system(
+        $^X, "$FindBin::Bin/causalDelta", $gammanew,
+        $gammanew, $renew, $imnew,
+    ) == 0 or die "Validating staged causal Delta failed: $?";
+    publish_resampled($gammanew, $renew, $imnew, $meshnew,
+                      $gammafile, $refile, $imfile, $meshfile);
+    unlink($gammaraw, $gammanew, $renew, $imnew, $meshnew,
+           $meshbase, $meshold, $ready);
     print "Recovered interrupted resampleDelta publication.\n";
     exit 0;
 }
-unlink($renew, $imnew, $meshnew, $meshbase, $meshold, $ready);
+unlink($gammaraw, $gammanew, $renew, $imnew, $meshnew,
+       $meshbase, $meshold, $ready);
 
--s $refile && -s $imfile or die;
+-s $gammafile or die "Authoritative Gamma file is missing: $gammafile\n";
 
-system("scripts/init_mesh >" . shell_quote($meshbase)) == 0 or die "init_mesh failed: $?";
-copy($refile, $meshold) or die "Can't copy $refile to $meshold: $!";
+system(shell_quote("$FindBin::Bin/init_mesh") . " >" . shell_quote($meshbase)) == 0
+    or die "init_mesh failed: $?";
+copy($gammafile, $meshold) or die "Can't copy $gammafile to $meshold: $!";
 system(
     "mesh_union " . shell_quote($meshbase) . " " . shell_quote($meshold) .
     " >" . shell_quote($meshnew) . " 2>log.resample"
@@ -41,20 +53,26 @@ system(
 # Resampling
 my @resample_args = ("--interpolation", "steffen", "-p", "17");
 push(@resample_args, "-e") if $allowextrapolation;
-system("resample", @resample_args, $refile, $meshnew, $renew) == 0 or die;
-system("resample", @resample_args, $imfile, $meshnew, $imnew) == 0 or die;
--s $renew && -s $imnew or die "resampleDelta failed";
+system("resample", @resample_args, $gammafile, $meshnew, $gammaraw) == 0 or die;
+system(
+    $^X, "$FindBin::Bin/causalDelta", $gammaraw,
+    $gammanew, $renew, $imnew,
+) == 0 or die "Causal Delta reconstruction failed: $?";
+-s $gammanew && -s $renew && -s $imnew or die "resampleDelta failed";
 write_text($ready, "ready\n");
 
-publish_resampled($renew, $imnew, $meshnew, $refile, $imfile, $meshfile);
-unlink($renew, $imnew, $meshnew, $meshbase, $meshold, $ready);
+publish_resampled($gammanew, $renew, $imnew, $meshnew,
+                  $gammafile, $refile, $imfile, $meshfile);
+unlink($gammaraw, $gammanew, $renew, $imnew, $meshnew,
+       $meshbase, $meshold, $ready);
 
 print "resampleDelta done.\n";
 
 sub publish_resampled {
-    my ($newre, $newim, $newmesh, $re, $im, $mesh) = @_;
+    my ($newgamma, $newre, $newim, $newmesh, $gamma, $re, $im, $mesh) = @_;
     copy($newre, $re) or die "Can't replace $re: $!";
     copy($newim, $im) or die "Can't replace $im: $!";
+    copy($newgamma, $gamma) or die "Can't replace $gamma: $!";
     copy($newmesh, $mesh) or die "Can't replace $mesh: $!";
 }
 

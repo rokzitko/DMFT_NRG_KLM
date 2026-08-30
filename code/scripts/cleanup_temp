@@ -12,6 +12,8 @@ rm -f param.param param.extra param.dmft param
 rm -f logNEW* logUNION* log.resample
 rm -f ReDelta*NEW* ReDelta*OLD* ReDelta*TEMP
 rm -f ImDelta*NEW* ImDelta*OLD* ImDelta*TEMP
+rm -f Delta*NEW* Delta*OLD* Delta*TEMP Delta*.raw
+rm -f ReDelta*.validate-kk.*
 
 # Temporary directories
 delete_NRG_output

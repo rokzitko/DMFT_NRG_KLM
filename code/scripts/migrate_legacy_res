@@ -6,6 +6,7 @@ use warnings;
 use File::Compare qw(compare);
 use File::Copy qw(copy);
 use File::Path qw(remove_tree);
+use FindBin;
 
 -d "res" or die "Legacy result directory res/ not found.\n";
 !-e "res/READY" && !-e "res/READY.complete"
@@ -14,7 +15,7 @@ if (-s "res/MIGRATED") {
     remove_migrated_res();
     exit 0;
 }
--s "res/c-imG.dat" && -s "res/ReDelta.dat" && -s "res/ImDelta.dat"
+-s "res/c-imG.dat" && (-s "res/Delta.dat" || -s "res/ImDelta.dat")
     or die "res/ does not contain a recognizable legacy result batch.\n";
 
 my $used_mu;
@@ -27,8 +28,6 @@ defined($used_mu)
     or die "Legacy res/ has no used chemical potential; preserving it for manual recovery.\n";
 
 my %required = (
-    "res/ReDelta.dat" => "ReDelta.used.dat",
-    "res/ImDelta.dat" => "ImDelta.used.dat",
     "res/c-imG.dat" => "c-imG.dat",
     "res/c-imF.dat" => "c-imF.dat",
     "res/c-imI.dat" => "c-imI.dat",
@@ -49,9 +48,20 @@ for my $source (sort keys %required) {
 }
 
 write_text("param.mu.used", "$used_mu\n");
-copy("res/ReDelta.dat", "mesh.used.dat")
+my $raw_gamma = ".Delta.used.legacy.tmp.$$";
+END { unlink($raw_gamma) if defined($raw_gamma) && -e $raw_gamma; }
+if (-s "res/Delta.dat") {
+    copy("res/Delta.dat", $raw_gamma) or die "Can't stage legacy Delta.dat: $!";
+} else {
+    derive_delta("res/ImDelta.dat", $raw_gamma);
+}
+system(
+    $^X, "$FindBin::Bin/causalDelta", $raw_gamma,
+    "Delta.used.dat", "ReDelta.used.dat", "ImDelta.used.dat",
+) == 0 or die "Can't canonicalize legacy hybridization: $?\n";
+unlink($raw_gamma);
+copy("Delta.used.dat", "mesh.used.dat")
     or die "Can't create mesh.used.dat: $!";
-derive_delta("res/ImDelta.dat", "Delta.used.dat");
 
 for my $source (sort keys %required) {
     compare($source, $required{$source}) == 0

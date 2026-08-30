@@ -9,9 +9,12 @@ use File::Copy qw(copy);
 use File::Path qw(remove_tree);
 use Getopt::Long qw(GetOptions);
 use List::Util qw(max);
+use POSIX qw(isfinite);
 use Term::ANSIColor qw(:constants colored);
 
 my $publish_only = 0;
+my ($cached_delta_clip, $cached_delta_eps);
+my $stage_validated = 0;
 GetOptions("publish" => \$publish_only) or die "Usage: $0 [--publish]\n";
 
 if (-e "res/READY" || -e "res/READY.complete") {
@@ -76,18 +79,23 @@ sub build_stage {
     -d "dmft" or die "Can't create dmft/.\n";
 
     for my $pair (
+        ["Delta.next.dat", "res/Delta.used.dat"],
         ["ReDelta.next.dat", "res/ReDelta.used.dat"],
         ["ImDelta.next.dat", "res/ImDelta.used.dat"],
-        ["Delta.next.dat", "res/Delta.used.dat"],
         ["param.mu.next", "res/param.mu.used"],
         ["mesh.next.dat", "res/mesh.used.dat"],
     ) {
         copy_required(@$pair);
     }
+    validate_delta_triplet(
+        "res/Delta.used.dat", "res/ReDelta.used.dat", "res/ImDelta.used.dat", 1,
+    );
     symlink("ReDelta.used.dat", "res/ReDelta.dat")
         or die "Can't create staged ReDelta alias: $!";
     symlink("ImDelta.used.dat", "res/ImDelta.dat")
         or die "Can't create staged ImDelta alias: $!";
+    symlink("Delta.used.dat", "res/Delta.dat")
+        or die "Can't create staged Delta alias: $!";
 
     msg("average");
     system("scripts/average", "res", "res/mesh.used.dat") == 0
@@ -156,7 +164,7 @@ sub build_stage {
         msg("dmftDOS");
         system(
             "scripts/dmftDOS-stable", "res", $raw_mu,
-            "res/ReDelta.dat.NEW", "res/ImDelta.dat.NEW",
+            "res/Delta.dat.NEW",
         ) == 0 or die "dmftDOS failed: $?";
 
         prepare_common_mesh($target, $mesh_refinement);
@@ -175,10 +183,8 @@ sub build_stage {
             chomp(my $alpha = `getparam alpha param.loop`);
             (0.0 < $alpha && $alpha <= 1.0) or die "alpha must satisfy 0<alpha<=1\n";
             my $old = 1.0 - $alpha;
-            system("mixy $alpha res/ReDelta.dat.NEW-common $old res/ReDelta.dat.OLD-common >res/ReDelta.dat.TEMP") == 0
-                or die "ReDelta mixing failed: $?";
-            system("mixy $alpha res/ImDelta.dat.NEW-common $old res/ImDelta.dat.OLD-common >res/ImDelta.dat.TEMP") == 0
-                or die "ImDelta mixing failed: $?";
+            system("mixy $alpha res/Delta.dat.NEW-common $old res/Delta.dat.OLD-common >res/Delta.dat.TEMP") == 0
+                or die "Gamma mixing failed: $?";
         }
 
         if ($broyden_delta || $active_broyden_mu) {
@@ -200,14 +206,10 @@ sub build_stage {
                 or die "broyden.py failed: $?";
         }
 
-        chomp(my $imclip = `getparam clipDelta param.loop`);
-        chomp($imclip = `getparam clip param.loop`) if $imclip eq "";
-        $imclip ne "" && $imclip > 0.0 or die "Invalid Delta clipping value\n";
-        system("clipy t -$imclip res/ImDelta.dat.TEMP >res/ImDelta.next.dat") == 0
-            or die "Delta clipping failed: $?";
-        copy_required("res/ReDelta.dat.TEMP", "res/ReDelta.next.dat");
-        system("scaley -1 res/ImDelta.next.dat >res/Delta.next.dat") == 0
-            or die "Generating next Delta.dat failed: $?";
+        system(
+            "scripts/causalDelta", "res/Delta.dat.TEMP",
+            "res/Delta.next.dat", "res/ReDelta.next.dat", "res/ImDelta.next.dat",
+        ) == 0 or die "Causal Delta reconstruction failed: $?";
         1;
     };
     if (!$next_ok) {
@@ -222,14 +224,14 @@ sub build_stage {
         restore_staged_log("occupancy.log");
         restore_staged_log("broyden.log");
         unlink_if_exists("res/occupancy.control.log");
-        unlink_if_exists("dmft/$target-ReDelta.raw.dat");
-        unlink_if_exists("dmft/$target-ImDelta.raw.dat");
+        unlink_if_exists("dmft/$target-Delta.raw.dat");
         unlink_if_exists("dmft/$target-mu-occup.dat");
         write_text("res/NEXT_PREPARATION_FAILED", $error);
     }
 
     write_text("res/ITER", "$target\n");
     validate_stage();
+    $stage_validated = 1;
     my $ready = "source_iter=$source\n" .
         "target_iter=$target\n" .
         "decision=$decision\n";
@@ -243,21 +245,17 @@ sub prepare_common_mesh {
         chomp(my $delta = `getparam opt_delta param.loop`);
         chomp(my $mindx = `getparam opt_mindx param.loop`);
         chomp(my $ymin = `getparam opt_ymin param.loop`);
-        system("optimize_mesh res/ImDelta.dat.NEW $delta $mindx $ymin >res/ImDelta.dat.NEW-opt 2>res/logNEW") == 0
+        system("optimize_mesh res/Delta.dat.NEW $delta $mindx $ymin >res/Delta.dat.NEW-opt 2>res/logNEW") == 0
             or die "mesh optimization failed: $?";
-        system("mesh_union res/ImDelta.used.dat res/ImDelta.dat.NEW-opt >res/mesh.next.dat 2>res/logUNION") == 0
+        system("mesh_union res/Delta.used.dat res/Delta.dat.NEW-opt >res/mesh.next.dat 2>res/logUNION") == 0
             or die "mesh union failed: $?";
         my @resample = ("resample", "--interpolation", "steffen", "-p", "17");
-        system(@resample, "res/ReDelta.used.dat", "res/mesh.next.dat", "res/ReDelta.dat.OLD-common") == 0 or die;
-        system(@resample, "res/ReDelta.dat.NEW", "res/mesh.next.dat", "res/ReDelta.dat.NEW-common") == 0 or die;
-        system(@resample, "res/ImDelta.used.dat", "res/mesh.next.dat", "res/ImDelta.dat.OLD-common") == 0 or die;
-        system(@resample, "res/ImDelta.dat.NEW", "res/mesh.next.dat", "res/ImDelta.dat.NEW-common") == 0 or die;
+        system(@resample, "res/Delta.used.dat", "res/mesh.next.dat", "res/Delta.dat.OLD-common") == 0 or die;
+        system(@resample, "res/Delta.dat.NEW", "res/mesh.next.dat", "res/Delta.dat.NEW-common") == 0 or die;
     } else {
         copy_required("res/mesh.used.dat", "res/mesh.next.dat");
-        copy_required("res/ReDelta.used.dat", "res/ReDelta.dat.OLD-common");
-        copy_required("res/ReDelta.dat.NEW", "res/ReDelta.dat.NEW-common");
-        copy_required("res/ImDelta.used.dat", "res/ImDelta.dat.OLD-common");
-        copy_required("res/ImDelta.dat.NEW", "res/ImDelta.dat.NEW-common");
+        copy_required("res/Delta.used.dat", "res/Delta.dat.OLD-common");
+        copy_required("res/Delta.dat.NEW", "res/Delta.dat.NEW-common");
     }
 }
 
@@ -280,6 +278,7 @@ sub run_occupancy {
 
 sub archive_used_inputs {
     my ($target) = @_;
+    copy_required("res/Delta.used.dat", "dmft/$target-Delta.dat");
     copy_required("res/ReDelta.used.dat", "dmft/$target-ReDelta.dat");
     copy_required("res/ImDelta.used.dat", "dmft/$target-ImDelta.dat");
     copy_required("res/param.mu.used", "dmft/$target-param.mu");
@@ -300,7 +299,7 @@ sub publish_ready {
     warn "ITER=$current looks truncated; republishing target iteration $target.\n"
         if $current != $source && $current != $target;
 
-    my $stage_valid = eval { validate_stage(); 1 };
+    my $stage_valid = $stage_validated || eval { validate_stage(); 1 };
     if (!$stage_valid) {
         my $error = $@ || "unknown staging validation failure";
         if ($current == $target) {
@@ -390,6 +389,12 @@ sub validate_stage {
     validate_mesh_group(qw(
         res/ReDelta.next.dat res/ImDelta.next.dat res/Delta.next.dat res/mesh.next.dat
     ));
+    validate_delta_triplet(
+        "res/Delta.used.dat", "res/ReDelta.used.dat", "res/ImDelta.used.dat",
+    );
+    validate_delta_triplet(
+        "res/Delta.next.dat", "res/ReDelta.next.dat", "res/ImDelta.next.dat",
+    );
 }
 
 sub validate_mesh_group {
@@ -423,16 +428,138 @@ sub read_mesh {
     return \@mesh;
 }
 
+sub validate_delta_triplet {
+    my ($gamma_file, $real_file, $imaginary_file, $skip_real_check) = @_;
+    my ($gamma_mesh, $gamma) = read_table($gamma_file);
+    my ($real_mesh, $real) = read_table($real_file);
+    my ($imaginary_mesh, $imaginary) = read_table($imaginary_file);
+    require_meshes_equal($gamma_mesh, $real_mesh, $real_file);
+    require_meshes_equal($gamma_mesh, $imaginary_mesh, $imaginary_file);
+    $gamma->[0] == 0.0 && $gamma->[-1] == 0.0
+        or die "$gamma_file must have exact-zero outer support points\n";
+    my $clip = delta_clip();
+    for my $index (0 .. $#$gamma) {
+        $gamma->[$index] >= 0.0
+            or die "Negative Gamma in $gamma_file at row " . ($index + 1) . "\n";
+        if ($index > 0 && $index < $#$gamma) {
+            $gamma->[$index] >= $clip * (1.0 - 1e-12)
+                or die "Gamma is below clipDelta in $gamma_file at row " . ($index + 1) . "\n";
+        }
+        my $scale = max(abs($gamma->[$index]), abs($imaginary->[$index]), 1.0);
+        abs($gamma->[$index] + $imaginary->[$index]) <= 1e-12 * $scale
+            or die "$imaginary_file is inconsistent with $gamma_file at row " . ($index + 1) . "\n";
+    }
+    return if $skip_real_check;
+
+    my $kk_file = "$real_file.validate-kk.$$";
+    unlink_if_exists($kk_file);
+    my $valid = eval {
+        system("kk", "--interpolation", "steffen", $imaginary_file, $kk_file) == 0
+            or die "KK validation failed for $imaginary_file: $?\n";
+        my ($kk_mesh, $dynamic_real) = read_table($kk_file);
+        require_meshes_equal($gamma_mesh, $kk_mesh, $kk_file);
+        my $eps = delta_eps();
+        for my $index (0 .. $#$real) {
+            my $expected = $dynamic_real->[$index] + $eps;
+            isfinite($expected) or die "Non-finite reconstructed ReDelta in $real_file\n";
+            my $scale = max(abs($real->[$index]), abs($expected), 1.0);
+            abs($real->[$index] - $expected) <= 5e-12 * $scale
+                or die "$real_file is not KK[$imaginary_file]+param.eps at row " .
+                    ($index + 1) . "\n";
+        }
+        1;
+    };
+    my $error = $@;
+    unlink_if_exists($kk_file);
+    $valid or die $error;
+}
+
+sub read_table {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!";
+    my (@mesh, @values);
+    while (<$fh>) {
+        next if /^\s*$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $file\n";
+        is_number($fields[0]) && is_number($fields[1])
+            or die "Non-numeric value in $file\n";
+        my ($omega, $value) = map { finite_number($_, $file) } @fields;
+        @mesh && $omega <= $mesh[-1]
+            and die "Mesh is not strictly increasing in $file\n";
+        push(@mesh, $omega);
+        push(@values, $value);
+    }
+    close($fh);
+    @mesh >= 2 or die "Too few rows in $file\n";
+    return (\@mesh, \@values);
+}
+
+sub require_meshes_equal {
+    my ($reference, $candidate, $file) = @_;
+    @$candidate == @$reference or die "Mesh length mismatch in $file\n";
+    for my $index (0 .. $#$reference) {
+        my $scale = max(abs($reference->[$index]), abs($candidate->[$index]), 1.0);
+        abs($reference->[$index] - $candidate->[$index]) <= 1e-11 * $scale
+            or die "Frequency mesh mismatch in $file at row " . ($index + 1) . "\n";
+    }
+}
+
 sub validate_scalar {
     my ($file) = @_;
-    my $value = read_first_line($file);
-    $value =~ s/^\s+|\s+$//g;
-    is_number($value) or die "Invalid numeric scalar in $file\n";
+    read_finite_scalar($file);
 }
 
 sub is_number {
     my ($value) = @_;
     return defined($value) && $value =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/;
+}
+
+sub finite_number {
+    my ($value, $context) = @_;
+    is_number($value) or die "Invalid numeric value in $context\n";
+    my $number = 0.0 + $value;
+    isfinite($number) or die "Non-finite numeric value in $context\n";
+    return $number;
+}
+
+sub read_finite_scalar {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!";
+    local $/;
+    my $text = <$fh>;
+    close($fh) or die "Can't close $file: $!";
+    defined($text) or die "$file is empty\n";
+    $text =~ s/^\s+|\s+$//g;
+    return finite_number($text, $file);
+}
+
+sub optional_parameter {
+    my ($name) = @_;
+    open(my $fh, "-|", "getparam", $name, "param.loop")
+        or die "Can't run getparam: $!";
+    local $/;
+    my $text = <$fh>;
+    my $ok = close($fh);
+    return if !$ok || !defined($text) || $text !~ /\S/;
+    $text =~ s/^\s+|\s+$//g;
+    return finite_number($text, "$name in param.loop");
+}
+
+sub delta_clip {
+    return $cached_delta_clip if defined($cached_delta_clip);
+    $cached_delta_clip = optional_parameter("clipDelta");
+    $cached_delta_clip = optional_parameter("clip")
+        if !defined($cached_delta_clip);
+    defined($cached_delta_clip) && $cached_delta_clip > 0.0
+        or die "clipDelta must be a finite positive number in param.loop\n";
+    return $cached_delta_clip;
+}
+
+sub delta_eps {
+    return $cached_delta_eps if defined($cached_delta_eps);
+    $cached_delta_eps = read_finite_scalar("param.eps");
+    return $cached_delta_eps;
 }
 
 sub verify_publication {
@@ -460,6 +587,7 @@ sub verify_publication {
     }
     chomp(my $published_track = `getparam track param.loop`);
     if (lc($published_track) eq "true") {
+        compare("res/Delta.used.dat", "dmft/$target-Delta.dat") == 0 or die "Broyden Delta history mismatch\n";
         compare("res/ReDelta.used.dat", "dmft/$target-ReDelta.dat") == 0 or die "Broyden ReDelta history mismatch\n";
         compare("res/ImDelta.used.dat", "dmft/$target-ImDelta.dat") == 0 or die "Broyden ImDelta history mismatch\n";
         compare("res/param.mu.used", "dmft/$target-param.mu") == 0 or die "Broyden mu history mismatch\n";
