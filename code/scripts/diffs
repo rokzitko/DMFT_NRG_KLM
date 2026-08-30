@@ -6,6 +6,9 @@ use strict;
 use warnings;
 use Getopt::Long qw(GetOptions);
 use File::Spec;
+use POSIX qw(isfinite);
+
+my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 
 my ($iter, $current, $previous, $local, $mesh, $output_dir);
 $current = "imaw.dat";
@@ -55,15 +58,16 @@ sub diff {
       "integ", "--interpolation", "steffen",
       "--epsabs", "1e-10", "--epsrel", "1e-9",
       "--workspace-limit", "1000", "--quadrature-rule", "61",
-      "--gsl-error-policy", "fail", "-a", $residual,
+      "--gsl-error-policy", "warn", "-a", $residual,
   );
-  chomp($diff);
+  $diff = parse_nonnegative_scalar($diff, "integrated difference");
  print "diff($fn1 - $fn2)=$diff\n";
- $diff ne "" or die "Calculation of diff failed.";
 
   # Additional negative-frequency L1 diagnostic; not used for convergence.
   my $negative_diff = command_output("integratenegabs", $residual);
-  chomp($negative_diff);
+  $negative_diff = parse_nonnegative_scalar(
+      $negative_diff, "negative-frequency difference"
+  );
  print "negative-frequency diff=$negative_diff\n";
 
   unlink($tmp1, $tmp2, $residual);
@@ -100,4 +104,15 @@ sub command_output {
   close($fh) or die "$command[0] failed: $?";
   defined($output) or die "$command[0] produced no output";
   return $output;
+}
+
+sub parse_nonnegative_scalar {
+  my ($text, $context) = @_;
+  $text =~ /\A\s*($number)\s*\z/
+      or die "Invalid $context: $text";
+  my $token = $1;
+  my $value = 0.0 + $token;
+  $value >= 0.0 && isfinite($value)
+      or die "Invalid $context: $token\n";
+  return $token;
 }

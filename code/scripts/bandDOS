@@ -7,6 +7,7 @@
 use strict;
 use warnings;
 use File::Path qw(make_path);
+use POSIX qw(isfinite);
 
 my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 
@@ -18,17 +19,22 @@ make_path($result_dir) unless -d $result_dir;
 -d $result_dir or die "Failed to create $result_dir.";
 
 open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
-my $mu = <$mu_fh>;
+my $mu;
+{
+  local $/;
+  $mu = <$mu_fh>;
+}
 close($mu_fh);
 defined $mu or die "Chemical potential not found in $mu_file";
 chomp($mu);
+$mu = parse_scalar($mu, $mu_file);
 
 # Use the same causal self-energy floor as the self-energy reconstruction.
 chomp(my $sigma_clip = `getparam clipSigma param.loop`);
 if ($sigma_clip eq "") {
   chomp($sigma_clip = `getparam clip param.loop`); # fall back
 }
-$sigma_clip ne "" or die;
+$sigma_clip = parse_scalar($sigma_clip, "clipSigma");
 $sigma_clip > 0.0 or die;
 
 print("bandDOS mu=$mu sigma_clip=$sigma_clip\n");
@@ -41,7 +47,8 @@ END {
     unlink($re_temporary) if defined($re_temporary) && -e $re_temporary;
     unlink($im_temporary) if defined($im_temporary) && -e $im_temporary;
 }
-system("hilb", "-v", "-i", "steffen", "-d", "DOS.dat", "-x", $mu,
+system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
+       "-d", "DOS.dat", "-x", $mu,
        "-c", $sigma_clip, "-f", "1e-12",
        "$result_dir/resigma.dat", "$result_dir/imsigma.dat",
        $re_temporary, $im_temporary) == 0
@@ -49,11 +56,11 @@ system("hilb", "-v", "-i", "steffen", "-d", "DOS.dat", "-x", $mu,
 
 my $re_mesh = validate_table($re_temporary, 0);
 my $im_mesh = validate_table($im_temporary, 1);
-@$re_mesh == @$im_mesh or die "Hilbert-output mesh-size mismatch\n";
-for (my $index = 0; $index < @$re_mesh; ++$index) {
-    $re_mesh->[$index] == $im_mesh->[$index]
-        or die "Hilbert-output frequency mismatch at row " . ($index + 1) . "\n";
-}
+my $sigma_re_mesh = validate_table("$result_dir/resigma.dat", 0);
+my $sigma_im_mesh = validate_table("$result_dir/imsigma.dat", 0);
+require_same_mesh($sigma_re_mesh, $sigma_im_mesh, "self-energy inputs");
+require_same_mesh($sigma_re_mesh, $re_mesh, "real Hilbert output");
+require_same_mesh($sigma_re_mesh, $im_mesh, "imaginary Hilbert output");
 rename($re_temporary, $re_output) or die "Can't replace $re_output: $!";
 rename($im_temporary, $im_output) or die "Can't replace $im_output: $!";
 
@@ -69,8 +76,7 @@ sub validate_table {
         $fields[0] =~ /\A$number\z/ && $fields[1] =~ /\A$number\z/
             or die "Invalid numeric value in $filename at line $.\n";
         my ($omega, $value) = map { 0.0 + $_ } @fields;
-        abs($omega) <= 1.7976931348623157e308
-            && abs($value) <= 1.7976931348623157e308
+        isfinite($omega) && isfinite($value)
             or die "Non-finite value in $filename at line $.\n";
         defined($previous) && $omega <= $previous
             and die "Non-increasing mesh in $filename at line $.\n";
@@ -82,4 +88,25 @@ sub validate_table {
     close($fh) or die "Can't close $filename: $!";
     @mesh >= 2 or die "Too few rows in $filename\n";
     return \@mesh;
+}
+
+sub parse_scalar {
+    my ($text, $context) = @_;
+    defined($text) && $text =~ /\A\s*($number)\s*\z/
+        or die "Invalid $context value\n";
+    my $value = 0.0 + $1;
+    isfinite($value) or die "Non-finite $context value\n";
+    return $value;
+}
+
+sub require_same_mesh {
+    my ($reference, $candidate, $context) = @_;
+    @$reference == @$candidate or die "$context mesh-size mismatch\n";
+    for (my $index = 0; $index < @$reference; ++$index) {
+        my $scale = abs($reference->[$index]);
+        $scale = abs($candidate->[$index]) if abs($candidate->[$index]) > $scale;
+        $scale = 1.0 if $scale < 1.0;
+        abs($reference->[$index] - $candidate->[$index]) <= 1e-12 * $scale
+            or die "$context frequency mismatch at row " . ($index + 1) . "\n";
+    }
 }

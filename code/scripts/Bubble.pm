@@ -3,6 +3,7 @@ package Bubble;
 use strict;
 use warnings;
 use Exporter qw(import);
+use POSIX qw(isfinite);
 
 our @EXPORT_OK = qw(
     bubble_options bubble_scalar chemical_potential parameter run_bubble
@@ -16,7 +17,7 @@ sub parse_scalar {
     $text =~ /\A\s*($number)\s*\z/
         or die "$context did not produce exactly one numeric scalar: $text";
     my $value = 0.0 + $1;
-    abs($value) <= 1.7976931348623157e308
+    isfinite($value)
         or die "$context produced a non-finite scalar\n";
     return $value;
 }
@@ -55,7 +56,7 @@ sub bubble_options {
     my $sigma_clip = parameter("clipSigma", "clip");
     $sigma_clip > 0.0 or die "clipSigma must be positive\n";
     return (
-        "--gsl-error-policy", "fail",
+        "--gsl-error-policy", "warn",
         "--workspace-limit", "1000",
         "--interpolation", "steffen",
         "--phi-interpolation", "steffen",
@@ -85,7 +86,7 @@ sub run_bubble {
 
 sub write_scalar {
     my ($filename, $value) = @_;
-    defined($value) && abs($value) <= 1.7976931348623157e308
+    defined($value) && isfinite($value)
         or die "Refusing to write a non-finite scalar to $filename\n";
     my $temporary = "$filename.tmp.$$";
     open(my $fh, ">", $temporary) or die "Can't write $temporary: $!";

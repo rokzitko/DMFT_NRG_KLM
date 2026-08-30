@@ -546,9 +546,10 @@ Multiplying this expression by the code normalization
 
 `code/scripts/sumrule` is a numerical diagnostic, not an exact pass/fail test.
 It uses `integ` with Steffen interpolation, a 61-point Gauss-Kronrod rule,
-`epsabs=1e-8`, `epsrel=1e-6`, and fail-on-error behavior. This integrates the
-represented irregular-grid curve rather than applying a trapezoid directly to
-the geometrically spaced samples. It does not extrapolate to zero or infinity.
+`epsabs=1e-8`, `epsrel=1e-6`, and warning-on-quadrature-error behavior. This
+integrates the represented irregular-grid curve rather than applying a
+trapezoid directly to the geometrically spaced samples. It does not
+extrapolate to zero or infinity.
 
 Smaller residual errors can also arise because `DOS.dat` and `PHI.dat` are
 interpolated independently, the kinetic and optical calls use different finite
@@ -610,7 +611,7 @@ restored in these files.
 - Delta remeshing and KK/Hilbert input interpolation use Steffen. Extrapolation
   is disabled, and resampled tables are written with 17 significant digits.
 - Bubble 1.14 uses Steffen for both self-energy components and tabulated
-  kernels, a 61-point QAG rule, workspace 1000, and fail-on-error behavior.
+  kernels, a 61-point QAG rule, workspace 1000, and warning-on-error behavior.
 - Standard DC and lattice-DOS Bubble calls request `epsabs=1e-9`. The
   tabulated-PHI DC and occupied kinetic-energy calls use `epsabs=1e-7` to avoid
   roundoff-limited failures in their nested integrations. Optical calls use
@@ -625,7 +626,11 @@ restored in these files.
   be negligible; extend the mesh when they are not.
 
 The convergence norm resamples both spectra with Steffen and uses
-`integ -i steffen -a` with GK61, `epsabs=1e-10`, and `epsrel=1e-9`.
+`integ -i steffen -a` with GK61, `epsabs=1e-10`, `epsrel=1e-9`, and
+`--gsl-error-policy warn`. If adaptive quadrature cannot meet a requested
+tolerance, the tool prints the GSL warning and the loop continues with its best
+finite estimate. Missing or malformed inputs, non-finite output, subprocess
+failure, and other structural errors remain fatal.
 
 For a non-Bethe or otherwise modified `DOS.dat`, the coefficient
 `3 pi^2/4` is not automatic.  A corresponding `PHI.dat` must use the same

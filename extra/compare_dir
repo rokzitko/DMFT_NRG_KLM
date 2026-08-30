@@ -7,6 +7,7 @@
 
 use strict;
 use warnings;
+use POSIX qw(isfinite);
 
 my $limit = 1e-4;
 
@@ -35,7 +36,7 @@ foreach (<*.dat>) {
             "integ", "--interpolation", "steffen",
             "--epsabs", "1e-10", "--epsrel", "1e-9",
             "--workspace-limit", "1000", "--quadrature-rule", "61",
-            "--gsl-error-policy", "fail", "-a", "diff",
+            "--gsl-error-policy", "warn", "-a", "diff",
         );
     } else {
         $diff = command_output("subtract", $filename, "../$filename");
@@ -44,7 +45,7 @@ foreach (<*.dat>) {
     $diff =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
         or die "Invalid difference for $filename: $diff\n";
     $diff = abs(0.0 + $diff);
-    $diff <= 1.7976931348623157e308
+    isfinite($diff)
         or die "Non-finite difference for $filename\n";
     print "$filename $diff\n";
     unlink("diff");

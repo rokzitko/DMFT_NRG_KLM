@@ -8,6 +8,10 @@ use warnings;
 use FindBin;
 use lib $FindBin::Bin;
 use Bubble qw(bubble_options chemical_potential parameter run_bubble);
+use POSIX qw(isfinite);
+
+my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+my $expected_rows = 10001;
 
 my $T = parameter("T");
 $T > 0.0 or die "T must be positive\n";
@@ -22,5 +26,74 @@ my $temporary = "$output.tmp.$$";
 END { unlink($temporary) if defined($temporary) && -e $temporary; }
 run_bubble("-d", "-o", $temporary, @param,
            0, 1, 0, $T, $mu, "resigma.dat", "imsigma.dat");
--s $temporary or die "Bubble did not produce $temporary\n";
+my $re_mesh = read_mesh("resigma.dat");
+my $im_mesh = read_mesh("imsigma.dat");
+require_same_mesh($re_mesh, $im_mesh, "self-energy inputs");
+validate_spectral_table($temporary, $re_mesh->[0], $re_mesh->[-1]);
 rename($temporary, $output) or die "Can't replace $output: $!";
+
+sub validate_spectral_table {
+    my ($filename, $lower, $upper) = @_;
+    open(my $fh, "<", $filename) or die "Can't read $filename: $!";
+    my ($previous, $rows);
+    $rows = 0;
+    while (<$fh>) {
+        next if /^\s*$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $filename at line $.\n";
+        $fields[0] =~ /\A$number\z/ && $fields[1] =~ /\A$number\z/
+            or die "Invalid numeric value in $filename at line $.\n";
+        my ($omega, $spectral) = map { 0.0 + $_ } @fields;
+        isfinite($omega) && isfinite($spectral)
+            or die "Non-finite value in $filename at line $.\n";
+        defined($previous) && $omega <= $previous
+            and die "Non-increasing mesh in $filename at line $.\n";
+        my $expected = $lower + ($upper - $lower) * $rows / ($expected_rows - 1);
+        my $scale = abs($omega) > abs($expected) ? abs($omega) : abs($expected);
+        $scale = 1.0 if $scale < 1.0;
+        abs($omega - $expected) <= 1e-12 * $scale
+            or die "Unexpected frequency in $filename at line $.\n";
+        $spectral >= 0.0
+            or die "Negative spectral value in $filename at line $.\n";
+        $previous = $omega;
+        ++$rows;
+    }
+    close($fh) or die "Can't close $filename: $!";
+    $rows == $expected_rows
+        or die "Expected $expected_rows rows in $filename, found $rows\n";
+}
+
+sub read_mesh {
+    my ($filename) = @_;
+    open(my $fh, "<", $filename) or die "Can't read $filename: $!";
+    my (@mesh, $previous);
+    while (<$fh>) {
+        next if /^\s*$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $filename at line $.\n";
+        $fields[0] =~ /\A$number\z/ && $fields[1] =~ /\A$number\z/
+            or die "Invalid numeric value in $filename at line $.\n";
+        my ($omega, $value) = map { 0.0 + $_ } @fields;
+        isfinite($omega) && isfinite($value)
+            or die "Non-finite value in $filename at line $.\n";
+        defined($previous) && $omega <= $previous
+            and die "Non-increasing mesh in $filename at line $.\n";
+        push(@mesh, $omega);
+        $previous = $omega;
+    }
+    close($fh) or die "Can't close $filename: $!";
+    @mesh >= 2 or die "Too few rows in $filename\n";
+    return \@mesh;
+}
+
+sub require_same_mesh {
+    my ($reference, $candidate, $context) = @_;
+    @$reference == @$candidate or die "$context mesh-size mismatch\n";
+    for (my $index = 0; $index < @$reference; ++$index) {
+        my $scale = abs($reference->[$index]);
+        $scale = abs($candidate->[$index]) if abs($candidate->[$index]) > $scale;
+        $scale = 1.0 if $scale < 1.0;
+        abs($reference->[$index] - $candidate->[$index]) <= 1e-12 * $scale
+            or die "$context frequency mismatch at row " . ($index + 1) . "\n";
+    }
+}

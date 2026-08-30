@@ -7,6 +7,9 @@ use warnings;
 use File::Basename qw(dirname);
 use File::Spec;
 use Math::Complex;
+use POSIX qw(isfinite);
+
+my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 
 my $result_dir = @ARGV ? shift @ARGV : "res";
 my $mu_file = @ARGV ? shift @ARGV : "param.mu";
@@ -14,43 +17,57 @@ my $re_output = @ARGV ? shift @ARGV : "ReDelta.dat";
 my $im_output = @ARGV ? shift @ARGV : "ImDelta.dat";
 @ARGV and die "Usage: $0 [result_dir [mu_file [re_output [im_output]]]]\n";
 
-# Read a column from a file
-sub readcol {
-    my ($filename, $column) = @_;
-
-    my @l;
-    open(F, "<$filename") or die "Can't open $filename for reading, stopped";
-    while (<F>) {
-        chomp;
-        my $x = (split)[$column-1];
-        push(@l, $x);
+sub read_table {
+    my ($filename) = @_;
+    open(my $fh, "<", $filename) or die "Can't read $filename: $!";
+    my (@mesh, @values);
+    my $previous;
+    while (<$fh>) {
+        next if /^\s*$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $filename at line $.\n";
+        $fields[0] =~ /\A$number\z/ && $fields[1] =~ /\A$number\z/
+            or die "Invalid numeric value in $filename at line $.\n";
+        my ($omega, $value) = map { 0.0 + $_ } @fields;
+        isfinite($omega) && isfinite($value)
+            or die "Non-finite value in $filename at line $.\n";
+        defined($previous) && $omega <= $previous
+            and die "Non-increasing mesh in $filename at line $.\n";
+        push(@mesh, $omega);
+        push(@values, $value);
+        $previous = $omega;
     }
-    close(F);
-
-    @l
-};
+    close($fh) or die "Can't close $filename: $!";
+    @mesh >= 2 or die "Too few rows in $filename\n";
+    return (\@mesh, \@values);
+}
 
 # Clipping of Im part of Delta; NRG requires Gamma=-Im(Delta) to be strictly positive.
 chomp(my $imclip = `getparam clipDelta param.loop`);
 if ($imclip eq "") {
     chomp($imclip = `getparam clip param.loop`); # fall back
 }
-$imclip ne "" or die;
+$imclip = parse_scalar($imclip, "clipDelta");
 $imclip > 0.0 or die;
 
 chomp(my $sigma_clip = `getparam clipSigma param.loop`);
 if ($sigma_clip eq "") {
     chomp($sigma_clip = `getparam clip param.loop`); # fall back
 }
-$sigma_clip ne "" or die;
+$sigma_clip = parse_scalar($sigma_clip, "clipSigma");
 $sigma_clip > 0.0 or die;
 
 # Chemical potential
 open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
-my $mu = <$mu_fh>;
+my $mu;
+{
+    local $/;
+    $mu = <$mu_fh>;
+}
 close($mu_fh);
 defined $mu or die "Chemical potential not found in $mu_file";
 chomp($mu);
+$mu = parse_scalar($mu, $mu_file);
 
 print "dmftDOS-stable - mu=$mu imclip=$imclip sigma_clip=$sigma_clip\n";
 
@@ -71,49 +88,43 @@ unlink($reGtmp, $imGtmp, $reFtmp, $imFtmp);
 
 # Evaluate G_local and F_local at the same chemical potential. Without -G,
 # hilb stores both with the same factor -1/pi, which cancels in their ratio.
-system("hilb", "-v", "-i", "steffen", "-n", "0", "-d", "DOS.dat", "-x", $mu,
+system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
+       "-n", "0", "-d", "DOS.dat", "-x", $mu,
        "-c", $sigma_clip, "-f", "1e-12",
        "${prefix}resigma.dat", "${prefix}imsigma.dat", $reGtmp, $imGtmp)
     == 0 or die "hilb failed: $?";
-system("hilb", "-v", "-i", "steffen", "-n", "1", "-d", "DOS.dat", "-x", $mu,
+system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
+       "-n", "1", "-d", "DOS.dat", "-x", $mu,
        "-c", $sigma_clip, "-f", "1e-12",
        "${prefix}resigma.dat", "${prefix}imsigma.dat", $reFtmp, $imFtmp)
     == 0 or die "hilb failed: $?";
 
-my @omega = readcol($imGtmp, 1);
-my @reGomega = readcol($reGtmp, 1);
-my @imFomega = readcol($imFtmp, 1);
-my @reFomega = readcol($reFtmp, 1);
-my @imG =   readcol($imGtmp, 2);
-my @reG =   readcol($reGtmp, 2);
-my @imF =   readcol($imFtmp, 2);
-my @reF =   readcol($reFtmp, 2);
-
-scalar(@omega) == scalar(@imG) or die "ImG mesh mismatch.";
-scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
-scalar(@omega) == scalar(@imF) or die "ImF mesh mismatch.";
-scalar(@omega) == scalar(@reF) or die "ReF mesh mismatch.";
-for (my $i = 0; $i < @omega; ++$i) {
-    $omega[$i] == $reGomega[$i] or die "ReG frequency mismatch.";
-    $omega[$i] == $imFomega[$i] or die "ImF frequency mismatch.";
-    $omega[$i] == $reFomega[$i] or die "ReF frequency mismatch.";
-}
+my ($omega, $imG) = read_table($imGtmp);
+my ($reGomega, $reG) = read_table($reGtmp);
+my ($imFomega, $imF) = read_table($imFtmp);
+my ($reFomega, $reF) = read_table($reFtmp);
+my ($sigma_re_omega) = read_table("${prefix}resigma.dat");
+my ($sigma_im_omega) = read_table("${prefix}imsigma.dat");
+require_same_mesh($sigma_re_omega, $sigma_im_omega, "self-energy inputs");
+require_same_mesh($sigma_re_omega, $omega, "ImG output");
+require_same_mesh($omega, $reGomega, "ReG output");
+require_same_mesh($omega, $imFomega, "ImF output");
+require_same_mesh($omega, $reFomega, "ReF output");
 
 open(R, ">", $re_publish) or die "Can't write $re_publish: $!";
 open(I, ">", $im_publish) or die "Can't write $im_publish: $!";
 
-my $len = @omega;
+my $len = @$omega;
 for (my $i = 0; $i < $len; $i++) {
-    my $o = $omega[$i];
-    my $G = $reG[$i] + i * $imG[$i];
-    my $F = $reF[$i] + i * $imF[$i];
+    my $o = $omega->[$i];
+    my $G = $reG->[$i] + i * $imG->[$i];
+    my $F = $reF->[$i] + i * $imF->[$i];
 
     # Stable hybridisation-function estimator.
     my $Delta = $F/$G;
     my $re = Re($Delta);
     my $im = Im($Delta);
-    abs($re) <= 1.7976931348623157e308
-        && abs($im) <= 1.7976931348623157e308
+    isfinite($re) && isfinite($im)
         or die "Non-finite hybridization at frequency $o\n";
 
     if ($im > -$imclip) {
@@ -137,4 +148,25 @@ sub output_target {
     defined($target) or die "Can't read output symlink $path: $!";
     return $target if File::Spec->file_name_is_absolute($target);
     return File::Spec->catfile(dirname($path), $target);
+}
+
+sub parse_scalar {
+    my ($text, $context) = @_;
+    defined($text) && $text =~ /\A\s*($number)\s*\z/
+        or die "Invalid $context value\n";
+    my $value = 0.0 + $1;
+    isfinite($value) or die "Non-finite $context value\n";
+    return $value;
+}
+
+sub require_same_mesh {
+    my ($reference, $candidate, $context) = @_;
+    @$reference == @$candidate or die "$context mesh-size mismatch\n";
+    for (my $index = 0; $index < @$reference; ++$index) {
+        my $scale = abs($reference->[$index]);
+        $scale = abs($candidate->[$index]) if abs($candidate->[$index]) > $scale;
+        $scale = 1.0 if $scale < 1.0;
+        abs($reference->[$index] - $candidate->[$index]) <= 1e-12 * $scale
+            or die "$context frequency mismatch at row " . ($index + 1) . "\n";
+    }
 }

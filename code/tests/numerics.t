@@ -59,7 +59,7 @@ subtest "Bethe tables use one normalized edge-refined mesh" => sub {
            "Phi equals (1-epsilon^2) DOS at every knot");
 };
 
-subtest "mkDOS preserves an existing table when hilb fails" => sub {
+subtest "mkDOS reports warnings and preserves output on failure" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     make_path("bin");
@@ -72,6 +72,23 @@ subtest "mkDOS preserves an existing table when hilb fails" => sub {
     is(read_file("DOS.dat"), "existing table\n", "existing DOS remains intact");
     my @temporary = glob(".DOS.dat.*");
     is(scalar(@temporary), 0, "failed generation removes its temporary file");
+
+    write_file(
+        "bin/hilb",
+        "#!/bin/sh\n" .
+        "printf '%s\\n' 'algorithm=analytic-piecewise-polynomial' " .
+        "'dos.integral=1' 'WARNING - qag error: 18 -- roundoff error' >&2\n",
+    );
+    chmod(0755, "bin/hilb");
+    open(my $saved_stderr, ">&", \*STDERR) or die $!;
+    open(STDERR, ">", "mkdos.stderr") or die $!;
+    my $status = system("$code/mkDOS");
+    open(STDERR, ">&", $saved_stderr) or die $!;
+    close($saved_stderr);
+    is($status, 0, "mkDOS accepts a finite warning-mode normalization");
+    like(read_file("mkdos.stderr"), qr/WARNING - qag error: 18/,
+         "successful hilb warning remains visible");
+    is(scalar(read_table("DOS.dat")), 2601, "warning-mode DOS is published");
 };
 
 subtest "Broyden remeshing matches the Steffen tool" => sub {
@@ -139,14 +156,14 @@ subtest "Bubble wrapper pins options and accepts only one scalar" => sub {
     is_deeply(
         \@options,
         [
-            "--gsl-error-policy", "fail",
+            "--gsl-error-policy", "warn",
             "--workspace-limit", "1000",
             "--interpolation", "steffen",
             "--phi-interpolation", "steffen",
             "-k", "6", "-c", "30",
             "-a", "2e-7", "-r", "1e-8", "-s", "1e-12",
         ],
-        "Bubble 1.14 numerical profile is explicit",
+        "Bubble 1.14 warning-mode numerical profile is explicit",
     );
     is(Bubble::bubble_scalar("argument"), 1.25, "one finite scalar is accepted");
 
@@ -161,10 +178,83 @@ subtest "Bubble wrapper pins options and accepts only one scalar" => sub {
     ok(!$ok, "multiple values are rejected");
     like($@, qr/exactly one numeric scalar/, "strict scalar error is descriptive");
 
+    {
+        local $ENV{BUBBLE_OUTPUT} = "1e999";
+        my $finite = eval { Bubble::bubble_scalar("argument"); 1 };
+        ok(!$finite, "overflow-form Bubble output is rejected as non-finite");
+    }
+
     Bubble::write_scalar("value.dat", 0.125);
     is(read_file("value.dat"), "0.125\n", "scalar output is published atomically");
     my @temporary = glob("value.dat.tmp.*");
     is(scalar(@temporary), 0, "scalar publication leaves no temporary file");
+};
+
+subtest "lattice DOS validates warning-mode Bubble tables" => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    chdir($dir) or die $!;
+    make_path("bin");
+    write_file("param.loop", "T=0.02\nclipSigma=1e-12\n");
+    write_file("param.mu", "0\n");
+    write_file("resigma.dat", "0 0\n1 0\n");
+    write_file("imsigma.dat", "0 -0.1\n1 -0.1\n");
+    write_file(
+        "bin/getparam",
+        "#!/bin/sh\n" .
+        "case \"\$1\" in\n" .
+        "T) printf '%s\\n' 0.02;;\n" .
+        "clipSigma) printf '%s\\n' 1e-12;;\n" .
+        "*) exit 1;;\n" .
+        "esac\n",
+    );
+    write_file(
+        "bin/bubble",
+        "#!/usr/bin/env perl\n" .
+        "use strict; use warnings;\n" .
+        "join(' ', \@ARGV) =~ /--gsl-error-policy warn/ or exit 91;\n" .
+        "my \$output;\n" .
+        "for (my \$i = 0; \$i < \@ARGV; ++\$i) {\n" .
+        "  \$output = \$ARGV[\$i + 1] if \$ARGV[\$i] eq '-o';\n" .
+        "}\n" .
+        "open(my \$fh, '>', \$output) or die \$!;\n" .
+        "if (defined \$ENV{BUBBLE_TABLE}) { print {\$fh} \$ENV{BUBBLE_TABLE}; }\n" .
+        "else {\n" .
+        "  for my \$i (0 .. 10000) {\n" .
+        "    my \$omega = \$ENV{BUBBLE_WRONG_MESH} ? \$i : \$i / 10000;\n" .
+        "    printf {\$fh} \"%.17g 0.5\\n\", \$omega;\n" .
+        "  }\n" .
+        "}\n" .
+        "close(\$fh);\n" .
+        "print STDERR \"WARNING - qag error: 18 -- roundoff error\\n\";\n",
+    );
+    chmod(0755, "bin/getparam", "bin/bubble");
+
+    local $ENV{PATH} = "$dir/bin:$original_path";
+    is(system($^X, "$scripts/dos"), 0,
+       "finite Bubble table is published despite a visible warning");
+    my $published = read_file("ldos.dat");
+
+    {
+        local $ENV{BUBBLE_WRONG_MESH} = 1;
+        isnt(system($^X, "$scripts/dos"), 0,
+             "Bubble table on the wrong interval remains fatal");
+    }
+    is(read_file("ldos.dat"), $published,
+       "wrong-interval Bubble table is not published");
+
+    {
+        local $ENV{BUBBLE_TABLE} = "0 0.5\n1 0.4\n";
+        isnt(system($^X, "$scripts/dos"), 0,
+             "truncated Bubble table remains fatal");
+    }
+    is(read_file("ldos.dat"), $published, "truncated Bubble table is not published");
+
+    {
+        local $ENV{BUBBLE_TABLE} = "0 1e999\n1 0.4\n";
+        isnt(system($^X, "$scripts/dos"), 0,
+             "non-finite Bubble table remains fatal");
+    }
+    is(read_file("ldos.dat"), $published, "invalid Bubble table is not published");
 };
 
 subtest "band DOS validates before publishing Hilbert output" => sub {
@@ -190,9 +280,12 @@ subtest "band DOS validates before publishing Hilbert output" => sub {
         "my (\$re, \$im) = \@ARGV[-2, -1];\n" .
         "open(my \$rf, '>', \$re) or die \$!;\n" .
         "open(my \$if, '>', \$im) or die \$!;\n" .
-        "print {\$rf} \"0 -0.2\\n1 -0.3\\n\";\n" .
+        "my \$real = \$ENV{HILB_TRUNCATED} ? \"0 -0.2\\n\" : \"0 -0.2\\n1 -0.3\\n\";\n" .
+        "print {\$rf} \$real;\n" .
         "my \$spectral = \$ENV{HILB_NEGATIVE} ? -0.4 : 0.4;\n" .
-        "print {\$if} \"0 \$spectral\\n1 0.5\\n\";\n" .
+        "my \$imaginary = \$ENV{HILB_TRUNCATED} " .
+        "? \"0 \$spectral\\n\" : \"0 \$spectral\\n1 0.5\\n\";\n" .
+        "print {\$if} \$imaginary;\n" .
         "close(\$rf); close(\$if);\n",
     );
     chmod(0755, "bin/getparam", "bin/hilb");
@@ -201,8 +294,9 @@ subtest "band DOS validates before publishing Hilbert output" => sub {
     local $ENV{HILB_LOG} = "$dir/hilb.log";
     is(system($^X, "$scripts/bandDOS", "res", "mu.used"), 0,
        "valid Hilbert output is accepted");
-    like(read_file("hilb.log"), qr/-i steffen .* -x 0\.5 -c 1e-12 -f 1e-12 /,
-         "band DOS pins interpolation, mu, clipping, and frequency matching");
+    like(read_file("hilb.log"),
+         qr/-i steffen --gsl-error-policy warn .* -x 0\.5 -c 1e-12 -f 1e-12 /,
+         "band DOS pins warning policy, interpolation, mu, and clipping");
     my $published_re = read_file("res/reaw.dat");
     my $published_im = read_file("res/imaw.dat");
 
@@ -213,6 +307,20 @@ subtest "band DOS validates before publishing Hilbert output" => sub {
     }
     is(read_file("res/reaw.dat"), $published_re, "rejected real output is not published");
     is(read_file("res/imaw.dat"), $published_im, "rejected spectral output is not published");
+
+    {
+        local $ENV{HILB_TRUNCATED} = 1;
+        isnt(system($^X, "$scripts/bandDOS", "res", "mu.used"), 0,
+             "truncated warning-mode Hilbert output is rejected");
+    }
+    is(read_file("res/reaw.dat"), $published_re, "truncated real output is not published");
+    is(read_file("res/imaw.dat"), $published_im,
+       "truncated spectral output is not published");
+    write_file("mu.used", "0.5\njunk\n");
+    isnt(system($^X, "$scripts/bandDOS", "res", "mu.used"), 0,
+         "corrupt chemical-potential input is rejected");
+    is(read_file("res/imaw.dat"), $published_im,
+       "corrupt chemical potential does not replace output");
     my @temporary = glob("res/*.tmp.*");
     is(scalar(@temporary), 0, "rejected Hilbert output is cleaned up");
 };
@@ -229,7 +337,7 @@ subtest "stable DMFT update evaluates H0 and H1 at the new mu" => sub {
         "bin/getparam",
         "#!/bin/sh\n" .
         "case \"\$1\" in\n" .
-        "clipDelta) printf '%s\\n' 1e-6;;\n" .
+        "clipDelta) printf '%s\\n' \"\${CLIP_DELTA:-1e-6}\";;\n" .
         "clipSigma) printf '%s\\n' 1e-12;;\n" .
         "*) exit 1;;\n" .
         "esac\n",
@@ -248,6 +356,7 @@ subtest "stable DMFT update evaluates H0 and H1 at the new mu" => sub {
         "my (\$re, \$im) = \@ARGV[-2, -1];\n" .
         "open(my \$rf, '>', \$re) or die \$!;\n" .
         "open(my \$if, '>', \$im) or die \$!;\n" .
+        "if (\$ENV{HILB_EMPTY}) { close(\$rf); close(\$if); exit 0; }\n" .
         "if (\$moment == 0) { print {\$rf} \"0 1\\n1 1\\n\"; print {\$if} \"0 0\\n1 0\\n\"; }\n" .
         "else { print {\$rf} \"0 0\\n1 0\\n\"; print {\$if} \"0 -1\\n1 -1\\n\"; }\n" .
         "close(\$rf); close(\$if);\n",
@@ -274,28 +383,77 @@ subtest "stable DMFT update evaluates H0 and H1 at the new mu" => sub {
     is(readlink("ImDelta.dat"), "ImDelta.next.dat", "imaginary Delta alias is preserved");
     is(read_file("ReDelta.next.dat"), "0 0\n1 0\n", "real alias target is updated");
     is(read_file("ImDelta.next.dat"), "0 -1\n1 -1\n", "imaginary alias target is updated");
+
+    {
+        local $ENV{HILB_EMPTY} = 1;
+        isnt(system($^X, "$scripts/dmftDOS-stable", "res", "mu.next",
+                    "ReDelta.dat", "ImDelta.dat"), 0,
+             "empty warning-mode Hilbert output is rejected");
+    }
+    is(read_file("ReDelta.next.dat"), "0 0\n1 0\n",
+       "empty output does not replace real Delta");
+    is(read_file("ImDelta.next.dat"), "0 -1\n1 -1\n",
+       "empty output does not replace imaginary Delta");
+
+    {
+        local $ENV{CLIP_DELTA} = "1e999";
+        isnt(system($^X, "$scripts/dmftDOS-stable", "res", "mu.next",
+                    "ReDelta.dat", "ImDelta.dat"), 0,
+             "non-finite clipping parameter is rejected");
+    }
+    is(read_file("ImDelta.next.dat"), "0 -1\n1 -1\n",
+       "invalid clipping parameter does not replace Delta");
+    write_file("mu.next", "0.25\njunk\n");
+    isnt(system($^X, "$scripts/dmftDOS-stable", "res", "mu.next",
+                "ReDelta.dat", "ImDelta.dat"), 0,
+         "corrupt chemical-potential input is rejected");
+    is(read_file("ImDelta.next.dat"), "0 -1\n1 -1\n",
+       "corrupt chemical potential does not replace Delta");
 };
 
-subtest "zero convergence residual is valid" => sub {
+subtest "warning-mode convergence estimates continue" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
+    make_path("bin");
     write_file("first.dat", "-1 0.1\n0 0.2\n1 0.1\n");
     write_file("second.dat", "-1 0.1\n0 0.2\n1 0.1\n");
     write_file("local.dat", "-1 0.1\n0 0.2\n1 0.1\n");
     write_file("mesh.dat", "-1 0\n0 0\n1 0\n");
+    write_file(
+        "bin/integ",
+        "#!/bin/sh\n" .
+        "case \" \$* \" in\n" .
+        "  *\" --gsl-error-policy warn \"*) ;;\n" .
+        "  *) printf '%s\\n' 'missing warning policy' >&2; exit 91;;\n" .
+        "esac\n" .
+        "printf '%s\\n' 'WARNING - qag error: 18 -- roundoff error' >&2\n" .
+        "printf '%s\\n' \"\${INTEG_OUTPUT:-0}\"\n",
+    );
+    chmod(0755, "bin/integ");
+    local $ENV{PATH} = "$dir/bin:$original_path";
 
     is(system($^X, "$scripts/diffs", "--iteration", "2",
               "--current", "first.dat", "--previous", "second.dat",
               "--local", "local.dat", "--mesh", "mesh.dat",
-              "--output-dir", "."), 0, "diffs accepts an exact zero residual");
+              "--output-dir", "."), 0,
+       "diffs records finite best estimates accompanied by warnings");
     like(read_file("DIFFS_C"), qr/^2\s+0(?:\.0*)?\s*$/,
          "zero consecutive residual is recorded");
     like(read_file("DIFFS_LatLoc"), qr/^2\s+0(?:\.0*)?\s*$/,
          "zero lattice-local residual is recorded");
     ok(!-e ".diff-residual.tmp", "temporary residual is removed");
+
+    {
+        local $ENV{INTEG_OUTPUT} = "1e999";
+        isnt(system($^X, "$scripts/diffs", "--iteration", "2",
+                    "--current", "first.dat", "--previous", "second.dat",
+                    "--local", "local.dat", "--mesh", "mesh.dat",
+                    "--output-dir", "."), 0,
+             "non-finite best estimates remain fatal");
+    }
 };
 
-subtest "KK and optical sum-rule utilities use strict Steffen tools" => sub {
+subtest "KK and optical sum-rule utilities use configured Steffen tools" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     make_path("spectra");
@@ -314,14 +472,29 @@ subtest "KK and optical sum-rule utilities use strict Steffen tools" => sub {
     my $expected = 8 / (3 * (4 * atan2(1, 1)) ** 2);
     cmp_ok(abs($1 - $expected), "<=", 2e-15,
            "sumrule integrates the represented optical curve");
+
+    write_file("ekin.dat", "1e999\n");
+    my $finite = eval { command_output($^X, "$scripts/sumrule"); 1 };
+    ok(!$finite, "sumrule rejects overflow-form scalar input");
 };
 
-subtest "asymmetric first-moment publication stops on Bubble failure" => sub {
+subtest "asymmetric first-moment publication stops on subprocess failure" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     make_path("bin");
     write_file("param.eps-bubble", "existing\n");
-    write_file("bin/bubble", "#!/bin/sh\nprintf partial\nexit 9\n");
+    write_file(
+        "bin/bubble",
+        "#!/bin/sh\n" .
+        "case \" \$* \" in\n" .
+        "  *\" --gsl-error-policy warn \"*) ;;\n" .
+        "  *) exit 91;;\n" .
+        "esac\n" .
+        "[ -z \"\$BUBBLE_WARNING\" ] || printf '%s\\n' " .
+        "'WARNING - qag error: 18 -- roundoff error' >&2\n" .
+        "printf '%s\\n' \"\${BUBBLE_OUTPUT:-partial}\"\n" .
+        "exit \"\${BUBBLE_STATUS:-9}\"\n",
+    );
     chmod(0755, "bin/bubble");
 
     local $ENV{PATH} = "$dir/bin:$original_path";
@@ -330,6 +503,25 @@ subtest "asymmetric first-moment publication stops on Bubble failure" => sub {
     is(read_file("param.eps-bubble"), "existing\n", "existing moment remains intact");
     my @temporary = glob("param.eps-bubble.tmp.*");
     is(scalar(@temporary), 0, "failed moment output is removed");
+
+    {
+        local $ENV{BUBBLE_STATUS} = 0;
+        local $ENV{BUBBLE_OUTPUT} = "not-a-number";
+        isnt(system("bash", "$code/../more_examples/asym/mkparameps-bubble"), 0,
+             "malformed warning-mode output remains fatal");
+    }
+    is(read_file("param.eps-bubble"), "existing\n",
+       "malformed output is not published");
+
+    {
+        local $ENV{BUBBLE_STATUS} = 0;
+        local $ENV{BUBBLE_OUTPUT} = "0.125";
+        local $ENV{BUBBLE_WARNING} = 1;
+        is(system("bash", "$code/../more_examples/asym/mkparameps-bubble"), 0,
+           "finite best estimate is published despite a visible warning");
+    }
+    is(read_file("param.eps-bubble"), "0.125\n",
+       "finite warning-mode result is published");
 };
 
 subtest "directory comparison uses the Steffen convergence norm" => sub {
@@ -349,7 +541,7 @@ subtest "directory comparison uses the Steffen convergence norm" => sub {
          "a negative signed scalar difference cannot cancel the error norm");
 };
 
-subtest "installed Hilbert and Bubble backends complete strict profiles" => sub {
+subtest "installed Hilbert and Bubble backends complete warning-mode profiles" => sub {
     plan skip_all => "hilb is not installed" unless executable_available("hilb");
     plan skip_all => "bubble is not installed" unless executable_available("bubble");
 
@@ -376,6 +568,8 @@ subtest "installed Hilbert and Bubble backends complete strict profiles" => sub 
     my @spectrum = read_table("imaw.dat");
     my @hybridization = read_table("ImDelta.dat");
     is(scalar(@spectrum), 401, "Hilbert output preserves the self-energy mesh");
+    is(scalar(@hybridization), 401,
+       "stable hybridization preserves the self-energy mesh");
     ok(!grep({ $_->[1] < 0 } @spectrum), "lattice spectrum is nonnegative");
     ok(!grep({ $_->[1] >= 0 } @hybridization), "hybridization remains causal");
 

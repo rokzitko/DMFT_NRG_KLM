@@ -20,6 +20,7 @@ INTEGRAL_PATTERN = re.compile(
     r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$"
 )
 EXPECTED_ALGORITHM = "algorithm=analytic-piecewise-polynomial"
+WARNING_PATTERN = re.compile(r"\bwarning\b", re.IGNORECASE)
 
 
 def write_dos(path, normalization):
@@ -36,6 +37,8 @@ def hilb_normalization(path):
         "-v",
         "-i",
         INTERPOLATION,
+        "--gsl-error-policy",
+        "warn",
         "-d",
         str(path),
         "0",
@@ -55,6 +58,9 @@ def hilb_normalization(path):
         detail = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(detail or f"hilb exited with status {result.returncode}")
 
+    for line in result.stderr.splitlines():
+        if WARNING_PATTERN.search(line):
+            print(line, file=sys.stderr)
     if EXPECTED_ALGORITHM not in result.stderr:
         raise RuntimeError("hilb did not select the analytic tabulated backend")
     integrals = INTEGRAL_PATTERN.findall(result.stderr)

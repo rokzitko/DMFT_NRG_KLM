@@ -12,9 +12,18 @@ set -e
 temporary="param.eps-bubble.tmp.$$"
 trap 'rm -f "$temporary"' EXIT
 
-bubble --gsl-error-policy fail --workspace-limit 1000 \
+bubble --gsl-error-policy warn --workspace-limit 1000 \
   --interpolation steffen --phi-interpolation steffen \
   -k 6 -a 1e-9 -r 1e-8 -s 1e-12 -e 1 -p DOS.dat \
   0 0 0 1e-10 0 DOS.dat DOS.dat >"$temporary"
+perl -e '
+  use POSIX qw(isfinite);
+  local $/;
+  my $text = <>;
+  my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+  defined($text) && $text =~ /\A\s*($number)\s*\z/ or die "invalid Bubble output\n";
+  my $value = 0.0 + $1;
+  isfinite($value) or die "non-finite Bubble output\n";
+' "$temporary"
 mv "$temporary" param.eps-bubble
 trap - EXIT

@@ -1,5 +1,6 @@
 Note that for this choice of DOS, <n> ~ 0.8 for DOS.dat
 
 `mkparameps-bubble` uses Bubble 1.14 with explicit Steffen interpolation,
-strict error handling, and atomic output publication to evaluate the first
-moment `int(epsilon DOS(epsilon),-inf,inf)` in `param.eps-bubble`.
+visible quadrature warnings, best-effort finite results, and atomic output
+publication to evaluate the first moment
+`int(epsilon DOS(epsilon),-inf,inf)` in `param.eps-bubble`.
