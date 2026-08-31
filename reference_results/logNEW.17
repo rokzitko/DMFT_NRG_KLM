@@ -1,2 +1,2 @@
-optimize_mesh: filename=Delta.dat.NEW delta=0.03 dxmin=1e-4 miny=1e-3
-optimize_mesh: max_relative_error=0.188615453077987 added=0 --- before=3588 after=3588
+optimize_mesh: filename=res/Delta.dat.NEW delta=1e-3 dxmin=1e-10 miny=1e-5
+optimize_mesh: max_relative_error=0.0317578869449658 added=0 --- before=5192 after=5192

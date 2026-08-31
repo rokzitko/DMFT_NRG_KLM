@@ -26,7 +26,7 @@ sub kk {
     -s $in or die "Input file not found: $in. Stopped";
     my $temporary = "$out.tmp.$$";
     unlink($temporary);
-    system($kkexe, "--interpolation", "steffen", $in, $temporary) == 0
+    system($kkexe, "-v", "--interpolation", "steffen", "--algorithm", "analytic", $in, $temporary) == 0
         or do {
             my $status = $?;
             unlink($temporary);

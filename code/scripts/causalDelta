@@ -66,7 +66,7 @@ unlink(@temporary);
 
 write_table($gamma_temporary, $mesh, \@gamma);
 write_table($im_temporary, $mesh, \@imaginary);
-system("kk", "--interpolation", "steffen", $im_temporary, $re_kk_temporary) == 0
+system("kk", "-v", "--interpolation", "steffen", "--algorithm", "analytic", $im_temporary, $re_kk_temporary) == 0
     or die "Steffen KK reconstruction failed: $?\n";
 my ($re_mesh, $dynamic_real) = read_table($re_kk_temporary);
 require_same_mesh($mesh, $re_mesh, "KK output");

@@ -475,7 +475,7 @@ sub validate_delta_triplet {
     my $kk_file = "$real_file.validate-kk.$$";
     unlink_if_exists($kk_file);
     my $valid = eval {
-        system("kk", "--interpolation", "steffen", $imaginary_file, $kk_file) == 0
+        system("kk", "-v", "--interpolation", "steffen", "--algorithm", "analytic", $imaginary_file, $kk_file) == 0
             or die "KK validation failed for $imaginary_file: $?\n";
         my ($kk_mesh, $dynamic_real) = read_table($kk_file);
         require_meshes_equal($gamma_mesh, $kk_mesh, $kk_file);
@@ -484,9 +484,10 @@ sub validate_delta_triplet {
             my $expected = $dynamic_real->[$index] + $eps;
             isfinite($expected) or die "Non-finite reconstructed ReDelta in $real_file\n";
             my $scale = max(abs($real->[$index]), abs($expected), 1.0);
-            abs($real->[$index] - $expected) <= 5e-12 * $scale
+            my $error = $real->[$index] - $expected;
+            abs($error) <= 5e-12 * $scale
                 or die "$real_file is not KK[$imaginary_file]+param.eps at row " .
-                    ($index + 1) . "\n";
+                    ($index + 1) . " error=$error scale=$scale\n";
         }
         1;
     };
