@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 use Cwd qw(getcwd);
+use Digest::SHA qw(sha256_hex);
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use FindBin;
@@ -325,6 +326,7 @@ subtest "band DOS validates before publishing Hilbert output" => sub {
     make_path("bin", "res");
     write_file("param.loop", "clipSigma=1e-12\n");
     write_file("mu.used", "0.5\n");
+    write_file("DOS.dat", "0 1\n1 1\n");
     write_file("res/resigma.dat", "0 0\n1 0\n");
     write_file("res/imsigma.dat", "0 -0.1\n1 -0.1\n");
     write_file(
@@ -362,6 +364,36 @@ subtest "band DOS validates before publishing Hilbert output" => sub {
     my $published_re = read_file("res/reaw.dat");
     my $published_im = read_file("res/imaw.dat");
 
+    is(system(
+        $^X, "$scripts/bandDOS", "--mu-value", "0.25",
+        "--re-output", "trial.re", "--im-output", "trial.im",
+        "--dos", "DOS.dat", "res",
+    ), 0, "direct mu and explicit output paths are accepted");
+    like(read_file("hilb.log"), qr/-d DOS\.dat -x 0\.25 /,
+         "trial evaluation forwards the selected DOS and mu");
+    is(read_file("trial.re"), $published_re, "explicit real output is published");
+    is(read_file("trial.im"), $published_im, "explicit spectral output is published");
+
+    write_file("real.target", "old real\n");
+    write_file("imaginary.target", "old imaginary\n");
+    symlink("real.target", "real.alias") or die $!;
+    symlink("imaginary.target", "imaginary.alias") or die $!;
+    is(system(
+        $^X, "$scripts/bandDOS", "--mu-value", "0.25",
+        "--re-output", "real.alias", "--im-output", "imaginary.alias", "res",
+    ), 0, "explicit outputs publish through compatibility symlinks");
+    is(readlink("real.alias"), "real.target", "real output symlink is preserved");
+    is(readlink("imaginary.alias"), "imaginary.target",
+       "spectral output symlink is preserved");
+
+    my $sigma_before = read_file("res/resigma.dat");
+    isnt(system(
+        $^X, "$scripts/bandDOS", "--mu-value", "0.25",
+        "--re-output", "res/resigma.dat", "--im-output", "collision.im", "res",
+    ), 0, "trial output cannot overwrite a frozen-Sigma input");
+    is(read_file("res/resigma.dat"), $sigma_before,
+       "output collision preserves the self-energy input");
+
     {
         local $ENV{HILB_NEGATIVE} = 1;
         isnt(system($^X, "$scripts/bandDOS", "res", "mu.used"), 0,
@@ -393,6 +425,7 @@ subtest "stable DMFT update evaluates H0 and H1 at the new mu" => sub {
     make_path("bin", "res");
     write_file("param.loop", "clipDelta=1e-6\nclipSigma=1e-12\n");
     write_file("mu.next", "0.25\n");
+    write_file("DOS.dat", "0 1\n1 1\n");
     write_file("res/resigma.dat", "0 0\n1 0\n");
     write_file("res/imsigma.dat", "0 -0.1\n1 -0.1\n");
     write_file(
@@ -432,6 +465,44 @@ subtest "stable DMFT update evaluates H0 and H1 at the new mu" => sub {
     is(read_file("hilb.log"), "0 0.25\n1 0.25\n",
        "H0 and H1 use the same requested chemical potential");
     is(read_file("Delta.new"), "0 1\n1 1\n", "raw update stores Gamma=-Im(F/G)");
+
+    write_file("H0.re.dat", "0 1\n1 1\n");
+    write_file("H0.im.dat", "0 0\n1 0\n");
+    write_h0_metadata("H0.mu", 0.25, 1e-12, "res/resigma.dat",
+                      "res/imsigma.dat", "DOS.dat", "H0.re.dat", "H0.im.dat");
+    unlink("hilb.log") or die $!;
+    is(system(
+        $^X, "$scripts/dmftDOS-stable",
+        "--h0-real", "H0.re.dat", "--h0-imaginary", "H0.im.dat",
+        "--h0-mu", "H0.mu", "--dos", "DOS.dat",
+        "res", "mu.next", "Delta.cached",
+    ), 0, "stable update accepts an accurate occupancy H0 cache");
+    is(read_file("hilb.log"), "1 0.25\n",
+       "cached update skips H0 but still evaluates H1 at the same mu");
+    is(read_file("Delta.cached"), "0 1\n1 1\n",
+       "cached and uncached raw updates agree");
+
+    write_h0_metadata("H0.mu", 0.5, 1e-12, "res/resigma.dat",
+                      "res/imsigma.dat", "DOS.dat", "H0.re.dat", "H0.im.dat");
+    write_file("Delta.cached", "published cache result\n");
+    isnt(system(
+        $^X, "$scripts/dmftDOS-stable",
+        "--h0-real", "H0.re.dat", "--h0-imaginary", "H0.im.dat",
+        "--h0-mu", "H0.mu", "res", "mu.next", "Delta.cached",
+    ), 0, "stale H0 cache is rejected");
+    is(read_file("Delta.cached"), "published cache result\n",
+       "stale cache does not replace raw Gamma");
+    write_h0_metadata("H0.mu", 0.25, 1e-12, "res/resigma.dat",
+                      "res/imsigma.dat", "DOS.dat", "H0.re.dat", "H0.im.dat");
+    write_file("res/resigma.dat", "0 0.25\n1 0.25\n");
+    isnt(system(
+        $^X, "$scripts/dmftDOS-stable",
+        "--h0-real", "H0.re.dat", "--h0-imaginary", "H0.im.dat",
+        "--h0-mu", "H0.mu", "res", "mu.next", "Delta.cached",
+    ), 0, "H0 cache from a different frozen self-energy is rejected");
+    is(read_file("Delta.cached"), "published cache result\n",
+       "cache provenance failure preserves raw Gamma");
+    write_file("res/resigma.dat", "0 0\n1 0\n");
 
     write_file("Delta.next.dat", "old Gamma\n");
     symlink("Delta.next.dat", "Delta.dat") or die $!;
@@ -735,4 +806,19 @@ sub executable_available {
         return 1 if -x "$directory/$name";
     }
     return 0;
+}
+
+sub write_h0_metadata {
+    my ($path, $mu, $clip, $resigma, $imsigma, $dos, $h0_real, $h0_imaginary) = @_;
+    write_file(
+        $path,
+        "version=1\n" .
+        "mu=$mu\n" .
+        "clip_sigma=$clip\n" .
+        "resigma_sha256=" . sha256_hex(read_file($resigma)) . "\n" .
+        "imsigma_sha256=" . sha256_hex(read_file($imsigma)) . "\n" .
+        "dos_sha256=" . sha256_hex(read_file($dos)) . "\n" .
+        "h0_real_sha256=" . sha256_hex(read_file($h0_real)) . "\n" .
+        "h0_imaginary_sha256=" . sha256_hex(read_file($h0_imaginary)) . "\n",
+    );
 }

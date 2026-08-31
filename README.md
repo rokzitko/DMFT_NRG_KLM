@@ -9,7 +9,7 @@ Features:
 - improved NRG discretization scheme (Zitko, Pruschke, 2008)
 - improved estimator for the self-energy (Kugel, 2022)
 - support for arbitrary density of states (tabulated in file DOS.dat)
-- robust band occupancy control by shifting chemical potential mu
+- safeguarded band occupancy control with frozen-self-energy lattice evaluation
 - linear or Broyden mixing of the hybridization spectral density
 - adaptive grid for better capturing sharp spectral features
 - transport calculation using external [bubble](https://github.com/rokzitko/bubble) code
@@ -20,7 +20,7 @@ Requirements:
   `unitary`)
 - associated scripts (getparam, scaley, getiter, newiter, subtracty...), in github repo rokzitko/nrgljubljana under scripts/.
 - perl
-- Python 3 with NumPy, SciPy, pandas, and Matplotlib for support and plotting
+- Python 3 with NumPy, SciPy, and Matplotlib for support and plotting
   scripts
 - m4 macro processor
 - Bubble 1.14 or later for transport and lattice-DOS postprocessing (optional
@@ -293,6 +293,34 @@ names `ReDelta.dat`, `ImDelta.dat`, `Delta.dat`, `param.mu`, and `mesh.dat` are
 compatibility symlinks to their respective next-cycle files. `res/` exists only
 while a completed cycle is being staged and is removed after successful
 publication.
+
+## Occupancy control
+
+`occupancy_mode=accurate` is the production default. For each trial chemical
+potential, `occupancy_control` keeps the current `resigma.dat` and
+`imsigma.dat` fixed and asks `bandDOS` to recompute the lattice Green function.
+The final trial's `H_0` pair and a Sigma/DOS provenance marker are reused by
+`dmftDOS-stable`, so the subsequent raw DMFT update computes only `H_1`. Set
+`occupancy_mode=fast` to use the less
+expensive rigid-spectrum approximation
+`A_trial(omega)=A_used(omega+mu_trial-mu_used)`; it shifts only the frequency
+column and never extrapolates the spectrum.
+
+Both modes integrate the represented Steffen spectrum with the external
+`integ` tool, require its total weight to agree with one within
+`occupancy_weight_tol`, bracket the filling root inside the step-relevant
+interval, and cap all trial evaluations with `occupancy_maxeval`. A standard
+update applies `under*(mu_root-mu_used)` and then enforces `maxdx`. Failed
+validation or root solving does not replace the staged chemical potential,
+log, or metrics.
+
+`occupancy.log` remains the four-column compatibility log
+`mu_used mu_next dx n_used`. `OCCUPANCY_METRICS` is the detailed, per-cycle
+key/value record. Convergence requires the consecutive-spectrum criterion,
+`abs(error_old)<=occupancy_solve_tol`, and
+`abs(convergence_dx)<=occupancy_mu_tol`. During active Broyden control,
+measure-only mode performs no trial Hilbert transforms and uses the previously
+applied Broyden step for `convergence_dx`.
 
 Mesh files have two columns for compatibility, but their second column is ignored.
 
@@ -665,6 +693,9 @@ The convergence norm resamples both spectra with Steffen and uses
 tolerance, the tool prints the GSL warning and the loop continues with its best
 finite estimate. Missing or malformed inputs, non-finite output, subprocess
 failure, and other structural errors remain fatal.
+The loop evaluates occupancy before making the convergence decision; a small
+spectral change alone cannot declare a wrong-filling or still-moving solution
+converged.
 
 For a non-Bethe or otherwise modified `DOS.dat`, the coefficient
 `3 pi^2/4` is not automatic.  A corresponding `PHI.dat` must use the same
@@ -679,6 +710,7 @@ boundaries, or the boundary term in the general sum rule must be retained.
 - [`code/scripts/causalDelta`](code/scripts/causalDelta)
 - [`code/scripts/dmft_done`](code/scripts/dmft_done) and
   [`code/scripts/broyden.py`](code/scripts/broyden.py)
+- [`code/scripts/occupancy_control`](code/scripts/occupancy_control)
 - [`code/scripts/ekin`](code/scripts/ekin)
 - [`code/scripts/cond.opt-PHI`](code/scripts/cond.opt-PHI)
 - [`code/scripts/bbl-PHI`](code/scripts/bbl-PHI)

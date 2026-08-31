@@ -43,6 +43,12 @@ $mucontrol = lc($mucontrol);
 ($mucontrol eq "std" || $mucontrol eq "broyden")
     or die "Invalid mucontrol=$mucontrol; expected std or broyden.\n";
 
+chomp(my $occupancy_mode = `getparam occupancy_mode param.loop 2>/dev/null`);
+$occupancy_mode = "accurate" if $occupancy_mode eq "";
+$occupancy_mode = lc($occupancy_mode);
+($occupancy_mode eq "fast" || $occupancy_mode eq "accurate")
+    or die "Invalid occupancy_mode=$occupancy_mode; expected fast or accurate.\n";
+
 my $broyden_delta = ($mixing eq "broyden");
 my $broyden_mu = ($mucontrol eq "broyden");
 my $stdinit = 0;
@@ -58,7 +64,8 @@ my $track = lc($track_value) eq "true";
 if ($broyden_delta || $broyden_mu) {
     $track or die "Broyden mixing/control requires track=true in param.loop.\n";
 }
-print "mixing=$mixing mucontrol=$mucontrol stdinit=$stdinit\n";
+print "mixing=$mixing mucontrol=$mucontrol stdinit=$stdinit " .
+    "occupancy_mode=$occupancy_mode\n";
 
 wait_for_nrg($Nz);
 
@@ -133,10 +140,26 @@ sub build_stage {
         "--output-dir", "res",
     ) == 0 or die "diffs failed: $?";
 
+    copy_optional("occupancy.log", "res/occupancy.log");
+    copy_optional("broyden.log", "res/broyden.log");
+    archive_used_inputs($target) if $track;
+
+    my $active_broyden_mu = $broyden_mu && $target > $stdinit;
+    msg($active_broyden_mu ? "occupancy_measurement" : "occupancy_control");
+    my $use_h0_cache = !$broyden_mu && $occupancy_mode eq "accurate";
+    run_occupancy(
+        target => $target,
+        mu_output => "res/param.mu.next",
+        history => $broyden_mu,
+        measure_only => $active_broyden_mu,
+        cache => $use_h0_cache,
+    );
+
     system(
         "scripts/checkconv",
         "--iteration", $target,
         "--diffs", "res/DIFFS_C",
+        "--occupancy-metrics", "res/OCCUPANCY_METRICS",
         "--decision", "res/DECISION",
     ) == 0 or die "checkconv failed: $?";
 
@@ -144,40 +167,22 @@ sub build_stage {
     $decision =~ /\A(?:continue|converged|stop)\z/
         or die "Invalid convergence decision: $decision\n";
 
-    copy_optional("occupancy.log", "res/occupancy.log");
-    copy_optional("broyden.log", "res/broyden.log");
     my $next_ok = eval {
-        archive_used_inputs($target) if $track;
-
-        my $active_broyden_mu = $broyden_mu && $target > $stdinit;
-        if (!$broyden_mu) {
-            msg("occupancy_control");
-            run_occupancy(
-                target => $target,
-                mu_output => "res/param.mu.next",
-                history => 0,
-                measure_only => 0,
-            );
-        }
-
         my $raw_mu = $broyden_mu ? "res/param.mu.used" : "res/param.mu.next";
         msg("dmftDOS");
-        system(
-            "scripts/dmftDOS-stable", "res", $raw_mu,
-            "res/Delta.dat.NEW",
-        ) == 0 or die "dmftDOS failed: $?";
-
-        prepare_common_mesh($target, $mesh_refinement);
-
-        if ($broyden_mu) {
-            msg($active_broyden_mu ? "occupancy_measurement" : "occupancy_control (stdinit)");
-            run_occupancy(
-                target => $target,
-                mu_output => "res/param.mu.next",
-                history => 1,
-                measure_only => $active_broyden_mu,
+        my @dmft_dos = ("scripts/dmftDOS-stable", "--dos", "DOS.dat");
+        if ($use_h0_cache) {
+            push(
+                @dmft_dos,
+                "--h0-real", "res/H0.re.dat",
+                "--h0-imaginary", "res/H0.im.dat",
+                "--h0-mu", "res/H0.mu",
             );
         }
+        push(@dmft_dos, "res", $raw_mu, "res/Delta.dat.NEW");
+        system(@dmft_dos) == 0 or die "dmftDOS failed: $?";
+
+        prepare_common_mesh($target, $mesh_refinement);
 
         if (!$broyden_delta) {
             chomp(my $alpha = `getparam alpha param.loop`);
@@ -263,15 +268,28 @@ sub run_occupancy {
     my %args = @_;
     my @command = (
         "scripts/occupancy_control",
+        "--$occupancy_mode",
         "--spectrum", "res/imaw.dat",
+        "--real-spectrum", "res/reaw.dat",
+        "--result-dir", "res",
+        "--dos", "DOS.dat",
         "--mu-input", "res/param.mu.used",
         "--mu-output", $args{mu_output},
         "--log", "res/occupancy.log",
+        "--metrics", "res/OCCUPANCY_METRICS",
         "--iteration", $args{target},
         "--history-dir", "dmft",
     );
     push(@command, "--history") if $args{history};
     push(@command, "--measure-only") if $args{measure_only};
+    if ($args{cache}) {
+        push(
+            @command,
+            "--cache-real", "res/H0.re.dat",
+            "--cache-imaginary", "res/H0.im.dat",
+            "--cache-mu", "res/H0.mu",
+        );
+    }
     my $command = join(" ", @command) . " >res/occupancy.control.log 2>&1";
     system($command) == 0 or die "occupancy_control failed: $?";
 }
@@ -313,6 +331,18 @@ sub publish_ready {
     system("scripts/copyresults", "res", $target) == 0
         or die "copyresults failed: $?";
 
+    for my $name (qw(
+        DIFFS_C DIFFS_LatLoc OCCUPANCY_METRICS
+        occupancy.log occupancy.control.log broyden.log
+        NEXT_PREPARATION_FAILED
+    )) {
+        copy_optional("res/$name", $name);
+    }
+    unlink_if_exists("OCCUPANCY_METRICS") if !-e "res/OCCUPANCY_METRICS";
+    unlink_if_exists("NEXT_PREPARATION_FAILED") if !-e "res/NEXT_PREPARATION_FAILED";
+    copy_optional("res/logNEW", "logNEW.$target");
+    copy_optional("res/logUNION", "logUNION.$target");
+
     if ($decision eq "converged") {
         local $ENV{DMFT_MU_FILE} = "param.mu.used";
         if (system("scripts/post") != 0) {
@@ -331,16 +361,7 @@ sub publish_ready {
     }
     system("scripts/next_aliases") == 0 or die "Preparing next-input aliases failed: $?";
 
-    for my $name (qw(
-        DIFFS_C DIFFS_LatLoc occupancy.log occupancy.control.log broyden.log
-        NEXT_PREPARATION_FAILED
-    )) {
-        copy_optional("res/$name", $name);
-    }
-    unlink_if_exists("NEXT_PREPARATION_FAILED") if !-e "res/NEXT_PREPARATION_FAILED";
     unlink_if_exists("POSTPROCESSING_FAILED") if $decision ne "converged";
-    copy_optional("res/logNEW", "logNEW.$target");
-    copy_optional("res/logUNION", "logUNION.$target");
 
     copy_required("res/ITER", "ITER");
     if ($decision eq "converged") {
@@ -584,6 +605,10 @@ sub verify_publication {
         next if !-s "res/$name";
         compare("res/$name", $name) == 0
             or die "Published $name differs from res/$name\n";
+    }
+    if (-e "res/OCCUPANCY_METRICS") {
+        compare("res/OCCUPANCY_METRICS", "OCCUPANCY_METRICS") == 0
+            or die "Published occupancy metrics differ from res/OCCUPANCY_METRICS\n";
     }
     chomp(my $published_track = `getparam track param.loop`);
     if (lc($published_track) eq "true") {

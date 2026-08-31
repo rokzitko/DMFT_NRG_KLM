@@ -254,6 +254,137 @@ subtest "Broyden preserves compatibility mu symlink" => sub {
     cmp_ok(0 + read_file("param.mu.next"), ">", 0, "Broyden updates the explicit target");
 };
 
+subtest "accurate occupancy is staged before convergence and reuses H0" => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    chdir($dir) or die $!;
+    make_path("1", "bin", "scripts");
+    for my $name (qw(
+        bandDOS occupancy_control dmftDOS-stable causalDelta copyresults next_aliases
+    )) {
+        symlink("$scripts/$name", "scripts/$name") or die $!;
+    }
+
+    my $mesh = "-1 0\n-0.5 0.2\n0.5 0.2\n1 0\n";
+    my $sigma_real = "-1 0\n-0.5 0\n0.5 0\n1 0\n";
+    my $sigma_imaginary = "-1 -0.1\n-0.5 -0.1\n0.5 -0.1\n1 -0.1\n";
+    write_file("param.loop", "placeholder=true\n");
+    write_file("param.eps", "0\n");
+    write_file("param.mu.next", "0\n");
+    write_file("DOS.dat", $mesh);
+    write_file("1/DONE", "\n");
+
+    write_file(
+        "bin/getparam",
+        "#!/bin/sh\ncase \"\$1\" in\n" .
+        "Nz) printf 1;; mixing) printf linear;; mucontrol) printf std;;\n" .
+        "occupancy_mode) printf accurate;; track) printf false;;\n" .
+        "clipDelta) printf 0.1;; clipSigma) printf 1e-12;;\n" .
+        "T) printf 0.1;; goal) printf 0.8;; maxdx) printf 0.2;; under) printf 0.5;;\n" .
+        "occupancy_solve_tol) printf 1e-8;; occupancy_mu_tol) printf 1e-10;;\n" .
+        "occupancy_weight_tol) printf 1e-4;; occupancy_integ_epsabs) printf 1e-10;;\n" .
+        "occupancy_integ_epsrel) printf 1e-9;; occupancy_maxeval) printf 12;;\n" .
+        "alpha) printf 0.5;; opt_delta) printf 1e-3;; opt_mindx) printf 1e-10;;\n" .
+        "opt_ymin) printf 1e-5;; *) exit 1;; esac\n",
+    );
+    write_file(
+        "bin/hilb",
+        "#!/usr/bin/env perl\nuse strict; use warnings;\n" .
+        "my (\$moment, \$mu) = (0, 0);\n" .
+        "for (my \$i = 0; \$i < \@ARGV; ++\$i) {\n" .
+        "  \$moment = \$ARGV[\$i + 1] if \$ARGV[\$i] eq '-n';\n" .
+        "  \$mu = \$ARGV[\$i + 1] if \$ARGV[\$i] eq '-x';\n" .
+        "}\n" .
+        "open(my \$events, '>>', \$ENV{EVENTS}) or die \$!;\n" .
+        "print {\$events} \"hilb \$moment \$mu\\n\"; close(\$events);\n" .
+        "my (\$real, \$imaginary) = \@ARGV[-2, -1];\n" .
+        "open(my \$rf, '>', \$real) or die \$!;\n" .
+        "open(my \$if, '>', \$imaginary) or die \$!;\n" .
+        "if (\$moment == 1) {\n" .
+        "  print {\$rf} \"-1 0\\n-0.5 0\\n0.5 0\\n1 0\\n\";\n" .
+        "  print {\$if} \"-1 -1\\n-0.5 -1\\n0.5 -1\\n1 -1\\n\";\n" .
+        "} else {\n" .
+        "  my \$marker = 0.3 + \$mu;\n" .
+        "  print {\$rf} \"-1 1\\n-0.5 1\\n0.5 1\\n1 1\\n\";\n" .
+        "  print {\$if} \"-1 \$marker\\n-0.5 0.2\\n0.5 0.2\\n1 0.1\\n\";\n" .
+        "}\nclose(\$rf); close(\$if);\n",
+    );
+    write_file(
+        "bin/integ",
+        "#!/usr/bin/env perl\nuse strict; use warnings;\n" .
+        "my \$file = \$ARGV[-1]; open(my \$fh, '<', \$file) or die \$!;\n" .
+        "my (\$x, \$marker) = split(/\\s+/, <\$fh>); close(\$fh);\n" .
+        "if (grep { \$_ eq '--total' } \@ARGV) { print \"1\\n\"; }\n" .
+        "else { print \$marker, \"\\n\"; }\n",
+    );
+    write_file(
+        "scripts/average",
+        "#!/bin/sh\nfor name in c-imG.dat c-imF.dat c-imI.dat c-reG.dat c-reF.dat c-reI.dat; do\n" .
+        "  printf '%s\\n' '-1 0.3' '-0.5 0.2' '0.5 0.2' '1 0.1' >\"\$1/\$name\"\n" .
+        "done\n",
+    );
+    write_file("scripts/realparts", "#!/bin/sh\nexit 0\n");
+    write_file(
+        "scripts/sigmatrick",
+        "#!/bin/sh\nprintf '%s' '$sigma_real' >\"\$1/resigma.dat\"\n" .
+        "printf '%s' '$sigma_imaginary' >\"\$1/imsigma.dat\"\n" .
+        "printf '%s\\n' '-1 0.3' '-0.5 0.2' '0.5 0.2' '1 0.1' >\"\$1/c-self.dat\"\n",
+    );
+    write_file(
+        "scripts/diffs",
+        "#!/bin/sh\nprintf '%s\\n' '1 1e-3' >res/DIFFS_C\n" .
+        "printf '%s\\n' '1 1e-3' >res/DIFFS_LatLoc\n",
+    );
+    write_file(
+        "scripts/checkconv",
+        "#!/bin/sh\ngrep -q '^mode=accurate\$' res/OCCUPANCY_METRICS || exit 81\n" .
+        "test -s res/H0.re.dat -a -s res/H0.im.dat -a -s res/H0.mu || exit 82\n" .
+        "printf '%s\\n' checkconv >>\"\$EVENTS\"\n" .
+        "while [ \"\$#\" -gt 0 ]; do\n" .
+        "  if [ \"\$1\" = --decision ]; then printf '%s\\n' stop >\"\$2\"; exit 0; fi\n" .
+        "  shift\ndone\nexit 83\n",
+    );
+    write_file("scripts/DMFT", "#!/bin/sh\nexit 91\n");
+    write_file("bin/gatherlastlines", "#!/bin/sh\nprintf '%s\\n' value >\"\$1\"\n");
+    write_file("bin/columnavg_comment", "#!/bin/sh\nprintf '%s\\n' value\n");
+    write_file(
+        "bin/optimize_mesh",
+        "#!/usr/bin/env perl\nopen(my \$fh, '<', \$ARGV[0]) or die \$!; print while <\$fh>;\n",
+    );
+    write_file(
+        "bin/mesh_union",
+        "#!/usr/bin/env perl\nopen(my \$fh, '<', \$ARGV[0]) or die \$!; print while <\$fh>;\n",
+    );
+    write_file(
+        "bin/resample",
+        "#!/usr/bin/env perl\nuse File::Copy qw(copy); copy(\$ARGV[-3], \$ARGV[-1]) or die \$!;\n",
+    );
+    write_file(
+        "bin/mixy",
+        "#!/usr/bin/env perl\nopen(my \$fh, '<', \$ARGV[1]) or die \$!; print while <\$fh>;\n",
+    );
+    write_file("bin/delete_NRG_output", "#!/bin/sh\nexit 0\n");
+    chmod(0755, glob("bin/*"), glob("scripts/*"));
+
+    local $ENV{PATH} = "$dir/bin:$ENV{PATH}";
+    local $ENV{EVENTS} = "$dir/events";
+    is(system(
+        $^X, "scripts/causalDelta", "DOS.dat",
+        "Delta.next.dat", "ReDelta.next.dat", "ImDelta.next.dat",
+    ), 0, "accurate-cycle fixture starts from a causal Gamma triplet");
+    write_file("mesh.next.dat", $mesh);
+
+    is(system($^X, "$scripts/dmft_done"), 0,
+       "one complete accurate standard-control cycle stages and publishes");
+    ok(!-e "res", "successful cycle removes its staging directory");
+    ok(-e "STOP", "stub convergence decision is published");
+    cmp_ok(abs((0.0 + read_file("param.mu.next")) - 0.05), "<=", 2e-12,
+           "published next mu is the underrelaxed occupancy update");
+    like(read_file("events"), qr/checkconv\nhilb 1 0\.05[^\n]*\n\z/,
+         "convergence sees occupancy/cache before dmftDOS evaluates only H1");
+    like(read_file("OCCUPANCY_METRICS"), qr/^mode=accurate$/m,
+         "accurate occupancy metrics publish with the result batch");
+};
+
 subtest "ready publication and cleanup" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
@@ -263,6 +394,14 @@ subtest "ready publication and cleanup" => sub {
 
     write_file("scripts/DMFT", "#!/bin/sh\nexit 0\n");
     write_file(
+        "scripts/post",
+        "#!/bin/sh\n" .
+        "[ \"\$(cat param.mu.used)\" = 0.1 ] || exit 91\n" .
+        "[ \"\$(cat DIFFS_C)\" = '1 1e-12' ] || exit 92\n" .
+        "grep -q '^n_old=0.8\$' OCCUPANCY_METRICS || exit 93\n" .
+        "printf '%s\\n' published >post.seen\n",
+    );
+    write_file(
         "bin/getparam",
         "#!/bin/sh\ncase \"\$1\" in\n" .
         "track) printf false;;\n" .
@@ -270,7 +409,7 @@ subtest "ready publication and cleanup" => sub {
         "*) exit 1;;\nesac\n",
     );
     write_file("bin/delete_NRG_output", "#!/bin/sh\nexit 0\n");
-    chmod(0755, "scripts/DMFT", "bin/getparam", "bin/delete_NRG_output");
+    chmod(0755, "scripts/DMFT", "scripts/post", "bin/getparam", "bin/delete_NRG_output");
     local $ENV{PATH} = "$dir/bin:$ENV{PATH}";
 
     my $negative = "-2 0\n-1 -0.2\n1 -0.2\n2 0\n";
@@ -289,9 +428,12 @@ subtest "ready publication and cleanup" => sub {
         c-self.dat imsigma.dat resigma.dat imaw.dat reaw.dat
     );
     write_file("res/$_", "value\n") for qw(custom custom.avg customfdm customfdm.avg);
+    write_file("res/DIFFS_C", "1 1e-12\n");
+    write_file("res/occupancy.log", "0.1 0.2 0.1 0.8\n");
+    write_file("res/OCCUPANCY_METRICS", "version=1\niteration=1\nn_old=0.8\n");
     write_file("res/ITER", "1\n");
-    write_file("res/DECISION", "continue\n");
-    write_file("res/READY", "source_iter=0\ntarget_iter=1\ndecision=continue\n");
+    write_file("res/DECISION", "converged\n");
+    write_file("res/READY", "source_iter=0\ntarget_iter=1\ndecision=converged\n");
 
     write_file("res/ReDelta.next.dat", $mesh);
     isnt(system($^X, "$scripts/dmft_done", "--publish"), 0,
@@ -307,6 +449,11 @@ subtest "ready publication and cleanup" => sub {
     is(read_file("param.mu.used"), "0.1\n", "used mu remains with results");
     is(read_file("param.mu.next"), "0.2\n", "next mu remains distinct");
     ok(-s "c-imG.dat" && -s "self.dat", "result batch is in the main directory");
+    is(read_file("post.seen"), "published\n",
+       "terminal postprocessing sees current diagnostics and used mu");
+    ok(!-e "POSTPROCESSING_FAILED", "diagnostic publication completed before post");
+    is(read_file("OCCUPANCY_METRICS"), "version=1\niteration=1\nn_old=0.8\n",
+       "occupancy metrics are published with the result batch");
 
     make_path("res");
     write_causal_stage_triplet("used", $positive);

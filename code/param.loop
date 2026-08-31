@@ -21,10 +21,21 @@ clipSigma=1e-12
 
 # Conduction band occupancy
 goal=0.8
+# frozen-Sigma lattice recomputation (accurate) or rigid spectrum shift (fast)
+occupancy_mode=accurate
 # Maximum step size for chemical potential changes
 maxdx=0.05
 # Underrelaxation for standard control; initial mu mixing factor for Broyden
 under=0.5
+# Filling/root and chemical-potential convergence tolerances
+occupancy_solve_tol=1e-8
+occupancy_mu_tol=1e-10
+# Allowed error in the lattice spectral sum rule
+occupancy_weight_tol=1e-4
+# Fermi-integration tolerances and total trial-evaluation limit
+occupancy_integ_epsabs=1e-10
+occupancy_integ_epsrel=1e-9
+occupancy_maxeval=12
 # std or broyden
 mucontrol=std
 # Number of initial cycles using standard occupancy control (Broyden)

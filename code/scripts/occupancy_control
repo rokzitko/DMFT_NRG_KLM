@@ -1,179 +1,720 @@
 #!/usr/bin/env python3
-# Occupancy control based on shifting chemical potential mu to match the density computed through lattice GF
-# Rok Zitko, rok.zitko@ijs.si, 2025-2026
+"""Safeguarded DMFT filling control with fast and frozen-Sigma evaluators."""
 
 import argparse
+from dataclasses import dataclass
+import hashlib
+import math
+import os
 from pathlib import Path
-import shlex
+import shutil
 import subprocess
+import sys
+import tempfile
+from typing import Optional
 
 import numpy as np
-import pandas as pd
-from scipy.interpolate import interp1d
-from scipy.integrate import quad
 from scipy.optimize import root_scalar
 
 
-parser = argparse.ArgumentParser(description="DMFT occupancy control")
-parser.add_argument(
-    "--measure-only",
-    action="store_true",
-    help="measure and optionally record occupancy without changing param.mu",
-)
-parser.add_argument(
-    "--history",
-    action="store_true",
-    help="write <history-dir>/<iteration>-mu-occup.dat for Broyden control",
-)
-parser.add_argument(
-    "--spectrum",
-    type=Path,
-    default=Path("res/imaw.dat"),
-    help="spectrum file (default: res/imaw.dat)",
-)
-parser.add_argument(
-    "--mu-input",
-    type=Path,
-    default=Path("param.mu"),
-    help="chemical-potential input file (default: param.mu)",
-)
-parser.add_argument(
-    "--mu-output",
-    type=Path,
-    default=Path("param.mu"),
-    help="chemical-potential output file (default: param.mu)",
-)
-parser.add_argument(
-    "--log",
-    type=Path,
-    default=Path("occupancy.log"),
-    help="occupancy log file (default: occupancy.log)",
-)
-parser.add_argument(
-    "--iteration",
-    type=int,
-    help="iteration number for --history (default: getiter output)",
-)
-parser.add_argument(
-    "--history-dir",
-    type=Path,
-    default=Path("dmft"),
-    help="occupancy history directory (default: dmft)",
-)
-args = parser.parse_args()
+PARAM_FILE = "param.loop"
 
 
-def get_float(command, default=None):
-    command = shlex.split(command)
+class OccupancyError(RuntimeError):
+    pass
+
+
+@dataclass
+class Evaluation:
+    mu: float
+    occupancy: float
+    weight: float
+    real_path: Optional[Path]
+    spectral_path: Path
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="DMFT occupancy control")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--fast", action="store_true", help="rigidly shift the current spectrum")
+    mode.add_argument(
+        "--accurate",
+        action="store_true",
+        help="recompute the lattice spectrum at each trial mu with frozen Sigma",
+    )
+    parser.add_argument(
+        "--measure-only",
+        action="store_true",
+        help="measure and optionally record occupancy without changing param.mu",
+    )
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="write <history-dir>/<iteration>-mu-occup.dat for Broyden control",
+    )
+    parser.add_argument("--spectrum", type=Path, default=Path("res/imaw.dat"))
+    parser.add_argument("--real-spectrum", type=Path, default=Path("res/reaw.dat"))
+    parser.add_argument("--result-dir", type=Path, default=Path("res"))
+    parser.add_argument("--dos", type=Path, default=Path("DOS.dat"))
+    parser.add_argument("--mu-input", type=Path, default=Path("param.mu"))
+    parser.add_argument("--mu-output", type=Path, default=Path("param.mu"))
+    parser.add_argument("--log", type=Path, default=Path("occupancy.log"))
+    parser.add_argument(
+        "--metrics", type=Path, default=Path("OCCUPANCY_METRICS")
+    )
+    parser.add_argument("--iteration", type=int)
+    parser.add_argument("--history-dir", type=Path, default=Path("dmft"))
+    parser.add_argument("--cache-real", type=Path)
+    parser.add_argument("--cache-imaginary", type=Path)
+    parser.add_argument("--cache-mu", type=Path)
+    parser.add_argument(
+        "--banddos",
+        type=Path,
+        default=Path(__file__).resolve().with_name("bandDOS"),
+        help=argparse.SUPPRESS,
+    )
+    arguments = parser.parse_args()
+    cache_count = sum(
+        value is not None
+        for value in (arguments.cache_real, arguments.cache_imaginary, arguments.cache_mu)
+    )
+    if cache_count not in (0, 3):
+        parser.error("--cache-real, --cache-imaginary, and --cache-mu must be used together")
+    return arguments
+
+
+def get_parameter(name, default=None):
+    result = subprocess.run(
+        ["getparam", name, PARAM_FILE],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    value = result.stdout.strip()
+    if result.returncode != 0 or not value:
+        return default
+    return value
+
+
+def get_float_parameter(name, default=None):
+    value = get_parameter(name)
+    if value is None:
+        if default is None:
+            raise OccupancyError(f"Required parameter {name} is not defined in {PARAM_FILE}")
+        value = default
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise OccupancyError(f"Invalid {name}={value!r} in {PARAM_FILE}") from exc
+    if not math.isfinite(number):
+        raise OccupancyError(f"Non-finite {name}={value!r} in {PARAM_FILE}")
+    return number
+
+
+def get_int_parameter(name, default):
+    value = get_parameter(name, str(default))
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise OccupancyError(f"Invalid {name}={value!r} in {PARAM_FILE}") from exc
+    if str(number) != value.strip():
+        raise OccupancyError(f"{name} must be an integer, got {value!r}")
+    return number
+
+
+def command_scalar(command, context):
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise OccupancyError(f"{context} failed with status {result.returncode}: {detail}")
+    fields = result.stdout.split()
+    if len(fields) != 1:
+        raise OccupancyError(f"{context} did not return exactly one scalar")
+    try:
+        value = float(fields[0])
+    except ValueError as exc:
+        raise OccupancyError(f"Invalid {context} output: {fields[0]!r}") from exc
+    if not math.isfinite(value):
+        raise OccupancyError(f"Non-finite {context} output: {fields[0]!r}")
+    return value
+
+
+def read_scalar(path):
+    try:
+        fields = path.read_text(encoding="ascii").split()
+    except OSError as exc:
+        raise OccupancyError(f"Failed to read {path}: {exc}") from exc
+    if len(fields) != 1:
+        raise OccupancyError(f"Expected one numeric value in {path}")
+    try:
+        value = float(fields[0])
+    except ValueError as exc:
+        raise OccupancyError(f"Invalid numeric value in {path}: {fields[0]!r}") from exc
+    if not math.isfinite(value):
+        raise OccupancyError(f"Non-finite value in {path}")
+    return value
+
+
+def load_table(path, require_nonnegative=True):
+    try:
+        table = np.loadtxt(path, dtype=float, ndmin=2)
+    except (OSError, ValueError) as exc:
+        raise OccupancyError(f"Failed to read {path}: {exc}") from exc
+    if table.ndim != 2 or table.shape[0] < 3 or table.shape[1] != 2:
+        raise OccupancyError(f"Expected a two-column table with at least three rows in {path}")
+    if not np.all(np.isfinite(table)):
+        raise OccupancyError(f"Non-finite value found in {path}")
+    if not np.all(np.diff(table[:, 0]) > 0.0):
+        raise OccupancyError(f"Frequency mesh is not strictly increasing in {path}")
+    if require_nonnegative and np.any(table[:, 1] < 0.0):
+        raise OccupancyError(f"Negative spectral value found in {path}")
+    return table
+
+
+def require_same_mesh(reference, candidate, context):
+    if reference.shape[0] != candidate.shape[0]:
+        raise OccupancyError(f"Frequency mesh size mismatch for {context}")
+    scale = np.maximum.reduce(
+        (np.abs(reference[:, 0]), np.abs(candidate[:, 0]), np.ones(reference.shape[0]))
+    )
+    if np.any(np.abs(reference[:, 0] - candidate[:, 0]) > 1e-12 * scale):
+        raise OccupancyError(f"Frequency mesh mismatch for {context}")
+
+
+def resolve_output(path):
+    if path.is_symlink():
+        target = os.readlink(path)
+        return Path(target) if os.path.isabs(target) else path.parent / target
+    return path
+
+
+def normalized_path(path):
+    return Path(os.path.abspath(resolve_output(path)))
+
+
+def require_parent(path):
+    if not path.parent.is_dir():
+        raise OccupancyError(f"Output directory does not exist for {path}: {path.parent}")
+
+
+def atomic_write_text(path, text):
+    path = resolve_output(path)
+    require_parent(path)
+    temporary = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    try:
+        temporary.write_text(text, encoding="ascii")
+        os.replace(temporary, path)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        raise OccupancyError(f"Failed to write {path}: {exc}") from exc
+
+
+def atomic_copy(source, destination):
+    destination = resolve_output(destination)
+    require_parent(destination)
+    temporary = destination.with_name(f".{destination.name}.tmp.{os.getpid()}")
+    try:
+        shutil.copyfile(source, temporary)
+        os.replace(temporary, destination)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        raise OccupancyError(f"Failed to publish {source} as {destination}: {exc}") from exc
+
+
+def atomic_append(path, text):
+    target = resolve_output(path)
+    try:
+        previous = target.read_text(encoding="ascii") if target.exists() else ""
+    except (OSError, UnicodeError) as exc:
+        raise OccupancyError(f"Failed to read existing log {target}: {exc}") from exc
+    atomic_write_text(target, previous + text)
+
+
+def previous_log_step(path, current_mu):
+    target = resolve_output(path)
+    if not target.is_file():
+        return None
+    try:
+        lines = [line for line in target.read_text(encoding="ascii").splitlines() if line.strip()]
+    except (OSError, UnicodeError) as exc:
+        raise OccupancyError(f"Failed to read occupancy log {target}: {exc}") from exc
+    if not lines:
+        return None
+    fields = lines[-1].split()
+    if len(fields) != 4:
+        raise OccupancyError(f"Expected four columns in the last row of {target}")
+    try:
+        old_mu, next_mu, step, occupancy = (float(field) for field in fields)
+    except ValueError as exc:
+        raise OccupancyError(f"Invalid numeric value in the last row of {target}") from exc
+    if not all(math.isfinite(value) for value in (old_mu, next_mu, step, occupancy)):
+        raise OccupancyError(f"Non-finite value in the last row of {target}")
+    scale = max(abs(old_mu), abs(next_mu), abs(step), 1.0)
+    if abs((next_mu - old_mu) - step) > 1e-12 * scale:
+        raise OccupancyError(f"Inconsistent chemical-potential step in {target}")
+    scale = max(abs(next_mu), abs(current_mu), 1.0)
+    if abs(next_mu - current_mu) > 1e-12 * scale:
+        raise OccupancyError(
+            f"Last occupancy-log mu {next_mu:.17g} does not match current mu "
+            f"{current_mu:.17g}"
+        )
+    return step
+
+
+class OccupancyEvaluator:
+    def __init__(self, arguments, mode, old_mu, temperature, weight_tolerance,
+                 maximum_evaluations, integration_epsabs, integration_epsrel,
+                 temporary_root, require_current_real):
+        self.arguments = arguments
+        self.mode = mode
+        self.old_mu = old_mu
+        self.temperature = temperature
+        self.weight_tolerance = weight_tolerance
+        self.maximum_evaluations = maximum_evaluations
+        self.integration_epsabs = integration_epsabs
+        self.integration_epsrel = integration_epsrel
+        self.temporary_root = temporary_root
+        self.current_table = load_table(arguments.spectrum)
+        current_real = None
+        if require_current_real:
+            if not arguments.real_spectrum.is_file():
+                raise OccupancyError(
+                    f"Real lattice spectrum is missing: {arguments.real_spectrum}"
+                )
+            real_table = load_table(arguments.real_spectrum, require_nonnegative=False)
+            require_same_mesh(
+                self.current_table, real_table, "current real and spectral lattice tables"
+            )
+            current_real = arguments.real_spectrum
+        current = self._integrate(
+            arguments.spectrum,
+            old_mu,
+            current_real,
+        )
+        self.cache = {float(old_mu).hex(): current}
+
+    def _integrate(self, spectrum_path, mu, real_path=None):
+        weight = command_scalar(
+            ["integ", "--interpolation", "steffen", "--total", "--", str(spectrum_path)],
+            f"spectral-weight integration for {spectrum_path}",
+        )
+        if abs(weight - 1.0) > self.weight_tolerance:
+            raise OccupancyError(
+                f"Spectral weight in {spectrum_path} is {weight:.17g}; "
+                f"expected 1 within {self.weight_tolerance:.3g}"
+            )
+        integral = command_scalar(
+            [
+                "integ", "--interpolation", "steffen",
+                "--epsabs", f"{self.integration_epsabs:.17g}",
+                "--epsrel", f"{self.integration_epsrel:.17g}",
+                "--workspace-limit", "1000", "--quadrature-rule", "61",
+                "--gsl-error-policy", "fail", "--fermi", "-t",
+                f"{self.temperature:.17g}", "--", str(spectrum_path),
+            ],
+            f"Fermi integration for {spectrum_path}",
+        )
+        occupancy = 2.0 * integral
+        allowance = 2.0 * self.weight_tolerance
+        if not -allowance <= occupancy <= 2.0 + allowance:
+            raise OccupancyError(f"Unphysical occupancy {occupancy:.17g} at mu={mu:.17g}")
+        return Evaluation(mu, occupancy, weight, real_path, spectrum_path)
+
+    def evaluate(self, mu, reserve=0):
+        mu = float(mu)
+        if not math.isfinite(mu):
+            raise OccupancyError("Trial chemical potential is non-finite")
+        key = mu.hex()
+        if key in self.cache:
+            return self.cache[key]
+        if len(self.cache) >= self.maximum_evaluations - reserve:
+            raise OccupancyError(
+                f"Occupancy evaluation limit {self.maximum_evaluations} exceeded"
+            )
+        index = len(self.cache)
+        if self.mode == "fast":
+            trial = self.temporary_root / f"fast-{index}.dat"
+            shifted = self.current_table.copy()
+            shifted[:, 0] -= mu - self.old_mu
+            np.savetxt(trial, shifted, fmt="%.17g")
+            evaluation = self._integrate(trial, mu)
+        else:
+            real = self.temporary_root / f"accurate-{index}-re.dat"
+            imaginary = self.temporary_root / f"accurate-{index}-im.dat"
+            command = [
+                str(self.arguments.banddos),
+                "--mu-value", f"{mu:.17g}",
+                "--re-output", str(real),
+                "--im-output", str(imaginary),
+                "--dos", str(self.arguments.dos),
+                str(self.arguments.result_dir),
+            ]
+            result = subprocess.run(command, check=False)
+            if result.returncode != 0:
+                raise OccupancyError(
+                    f"Frozen-Sigma lattice evaluation failed at mu={mu:.17g} "
+                    f"with status {result.returncode}"
+                )
+            real_table = load_table(real, require_nonnegative=False)
+            imaginary_table = load_table(imaginary)
+            require_same_mesh(
+                imaginary_table, real_table, "trial real and spectral lattice tables"
+            )
+            evaluation = self._integrate(imaginary, mu, real)
+        self.cache[key] = evaluation
+        print(
+            f"occupancy[{self.mode}] mu={mu:.17g} "
+            f"n={evaluation.occupancy:.17g} weight={evaluation.weight:.17g}"
+        )
+        return evaluation
+
+
+def resolve_iteration(arguments):
+    if arguments.iteration is not None:
+        if arguments.iteration < 1:
+            raise OccupancyError(f"Invalid iteration {arguments.iteration}")
+        return arguments.iteration
     try:
         result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=True
+            ["getiter"], capture_output=True, text=True, check=False
         )
-        return float(result.stdout.strip())
-    except (subprocess.CalledProcessError, ValueError):
-        return default
-
-
-def require_output_parent(path):
-    if not path.parent.is_dir():
-        raise RuntimeError(
-            f"Output directory for {path} does not exist or is not a directory: "
-            f"{path.parent}"
-        )
-
-
-T = get_float("getparam T param.loop")
-LIM = get_float("getparam broaden_max param.loop")
-GOAL = get_float("getparam goal param.loop")
-MAXDX = get_float("getparam maxdx param.loop")
-UNDER = get_float("getparam under param.loop", 0.5)
-
-oldmu = float(args.mu_input.read_text(encoding="ascii").strip())
-
-print(f"T={T} lim={LIM} goal={GOAL} maxdx={MAXDX} oldmu={oldmu}\n")
-
-# --- Load data ---
-data = pd.read_csv(args.spectrum, sep=r"\s+", header=None)
-x_vals, y_vals = data[0].values, data[1].values
-A = interp1d(x_vals, y_vals, kind='cubic', fill_value="extrapolate")
-print("A(0) =", A(0))
-
-# --- Fermi function ---
-def f(w):
-    return 1 / (1 + np.exp(w / T))
-
-# --- Total integral of A(w) ---
-total, _ = quad(lambda w: A(w), -LIM, LIM, limit=1000)
-print("total =", total)
-
-# --- Integration bounds for shifted integral ---
-LIM1 = -LIM
-LIM2 = min(LIM, 40*T)
-
-# --- Occupancy function ---
-def n(shift):
-    def integrand(w):
-        return A(w - shift) * f(w)
-    result, _ = quad(integrand, LIM1, LIM2, limit=1000)
-    return 2 * result  # Factor of 2 for spin
-
-n0 = n(0)
-print("n[shift=0] =", n0)
-
-if args.history:
-    iteration = args.iteration
-    if iteration is None:
-        result = subprocess.run(
-            ["getiter"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+    except OSError as exc:
+        if arguments.history:
+            raise OccupancyError(f"Failed to run getiter: {exc}") from exc
+        return 0
+    try:
         iteration = int(result.stdout.strip())
-    if not args.history_dir.is_dir():
-        raise RuntimeError(
-            f"{args.history_dir} does not exist or is not a directory; "
+    except ValueError:
+        iteration = 0
+    if result.returncode != 0 or iteration < 1:
+        if arguments.history:
+            raise OccupancyError("getiter failed to return a positive iteration")
+        return 0
+    return iteration
+
+
+def write_history(arguments, iteration, old_mu, occupancy):
+    if not arguments.history:
+        return
+    if not arguments.history_dir.is_dir():
+        raise OccupancyError(
+            f"{arguments.history_dir} does not exist or is not a directory; "
             "occupancy history requires track=true"
         )
-    history_file = args.history_dir / f"{iteration}-mu-occup.dat"
-    temporary = history_file.with_name(f".{history_file.name}.tmp")
-    temporary.write_text(f"{oldmu:.17g} {n0:.17g}\n", encoding="ascii")
-    temporary.replace(history_file)
-    print("occupancy history =", history_file)
+    history = arguments.history_dir / f"{iteration}-mu-occup.dat"
+    atomic_write_text(history, f"{old_mu:.17g} {occupancy:.17g}\n")
+    print(f"occupancy history = {history}")
 
-if args.measure_only:
-    print(f"Measurement-only mode: {args.mu_output} was not changed.")
-    raise SystemExit(0)
 
-require_output_parent(args.mu_output)
-require_output_parent(args.log)
+def write_metrics(arguments, values):
+    lines = [f"{key}={value}\n" for key, value in values.items()]
+    atomic_write_text(arguments.metrics, "".join(lines))
 
-# --- Solve for shift such that n(shift) == GOAL ---
-sol = root_scalar(lambda shift: n(shift) - GOAL, x0=0, method='secant')
-shift = sol.root
-print("sol =", sol)
 
-shift = UNDER * shift # "underrelaxation"
+def sha256_file(path):
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+    except OSError as exc:
+        raise OccupancyError(f"Failed to hash {path}: {exc}") from exc
+    return digest.hexdigest()
 
-newmu = oldmu - shift
 
-print("oldmu =", oldmu)
-print("newmu =", newmu)
+def sigma_clip_parameter():
+    value = get_parameter("clipSigma")
+    context = "clipSigma"
+    if value is None:
+        value = get_parameter("clip")
+        context = "clip"
+    if value is None:
+        raise OccupancyError("Neither clipSigma nor clip is defined in param.loop")
+    try:
+        result = float(value)
+    except ValueError as exc:
+        raise OccupancyError(f"Invalid {context}={value!r} in param.loop") from exc
+    if not math.isfinite(result) or result <= 0.0:
+        raise OccupancyError(f"{context} must be finite and positive in param.loop")
+    return result
 
-# --- Clip dx if too large ---
-dx = newmu - oldmu
-print("dx =", dx)
-if abs(dx) > MAXDX:
-    dx = np.sign(dx) * MAXDX
-    print("Clipping. dx==", dx)
 
-newmu = oldmu + dx
+def publish_cache(arguments, evaluation, sigma_clip):
+    paths = (arguments.cache_real, arguments.cache_imaginary, arguments.cache_mu)
+    if all(path is None for path in paths):
+        return
+    if evaluation.real_path is None or not evaluation.real_path.is_file():
+        raise OccupancyError("Accurate H0 cache has no real component")
+    atomic_copy(evaluation.real_path, arguments.cache_real)
+    atomic_copy(evaluation.spectral_path, arguments.cache_imaginary)
+    metadata = (
+        "version=1\n"
+        f"mu={evaluation.mu:.17g}\n"
+        f"clip_sigma={sigma_clip:.17g}\n"
+        f"resigma_sha256={sha256_file(arguments.result_dir / 'resigma.dat')}\n"
+        f"imsigma_sha256={sha256_file(arguments.result_dir / 'imsigma.dat')}\n"
+        f"dos_sha256={sha256_file(arguments.dos)}\n"
+        f"h0_real_sha256={sha256_file(evaluation.real_path)}\n"
+        f"h0_imaginary_sha256={sha256_file(evaluation.spectral_path)}\n"
+    )
+    atomic_write_text(arguments.cache_mu, metadata)
 
-# --- Write to files ---
-args.mu_output.write_text(f"{newmu}\n", encoding="ascii")
 
-with args.log.open("a", encoding="ascii") as output:
-    output.write(f"{oldmu} {newmu} {dx} {n0}\n")
+def validate_outputs(arguments, cache_requested):
+    active = {
+        "metrics": arguments.metrics,
+    }
+    if not arguments.measure_only:
+        active.update({"mu output": arguments.mu_output, "log": arguments.log})
+    if cache_requested:
+        active.update(
+            {
+                "cache real": arguments.cache_real,
+                "cache imaginary": arguments.cache_imaginary,
+                "cache mu": arguments.cache_mu,
+            }
+        )
+    normalized = {}
+    for label, path in active.items():
+        target = normalized_path(path)
+        if target in normalized:
+            raise OccupancyError(
+                f"{label} and {normalized[target]} resolve to the same output file"
+            )
+        normalized[target] = label
+        require_parent(resolve_output(path))
+
+    if cache_requested:
+        protected = {
+            normalized_path(arguments.spectrum): "current spectrum",
+            normalized_path(arguments.real_spectrum): "current real spectrum",
+            normalized_path(arguments.mu_input): "chemical-potential input",
+            normalized_path(arguments.dos): "DOS input",
+            normalized_path(arguments.result_dir / "resigma.dat"): "real self-energy input",
+            normalized_path(arguments.result_dir / "imsigma.dat"): "imaginary self-energy input",
+        }
+        for label, path in (
+            ("cache real", arguments.cache_real),
+            ("cache imaginary", arguments.cache_imaginary),
+            ("cache mu", arguments.cache_mu),
+        ):
+            target = normalized_path(path)
+            if target in protected:
+                raise OccupancyError(f"{label} collides with {protected[target]}")
+
+
+def main():
+    arguments = parse_arguments()
+    configured_mode = get_parameter("occupancy_mode", "accurate").lower()
+    mode = "fast" if arguments.fast else "accurate" if arguments.accurate else configured_mode
+    if mode not in ("fast", "accurate"):
+        raise OccupancyError(
+            f"Invalid occupancy_mode={configured_mode!r}; expected fast or accurate"
+        )
+    cache_requested = arguments.cache_real is not None
+    if cache_requested and (mode != "accurate" or arguments.measure_only):
+        raise OccupancyError("H0 caching is available only for accurate occupancy updates")
+    validate_outputs(arguments, cache_requested)
+    cache_sigma_clip = sigma_clip_parameter() if cache_requested else None
+
+    temperature = get_float_parameter("T")
+    goal = get_float_parameter("goal")
+    maxdx = get_float_parameter("maxdx")
+    under = get_float_parameter("under", 0.5)
+    solve_tolerance = get_float_parameter("occupancy_solve_tol", 1e-8)
+    mu_tolerance = get_float_parameter("occupancy_mu_tol", 1e-10)
+    weight_tolerance = get_float_parameter("occupancy_weight_tol", 1e-4)
+    integration_epsabs = get_float_parameter("occupancy_integ_epsabs", 1e-10)
+    integration_epsrel = get_float_parameter("occupancy_integ_epsrel", 1e-9)
+    maximum_evaluations = get_int_parameter("occupancy_maxeval", 12)
+    old_mu = read_scalar(arguments.mu_input)
+    iteration = resolve_iteration(arguments)
+
+    if temperature <= 0.0:
+        raise OccupancyError("T must be positive")
+    if not 0.0 <= goal <= 2.0:
+        raise OccupancyError("goal must lie in [0,2]")
+    if maxdx <= 0.0:
+        raise OccupancyError("maxdx must be positive")
+    if not 0.0 < under <= 1.0:
+        raise OccupancyError("under must satisfy 0<under<=1")
+    if solve_tolerance <= 0.0:
+        raise OccupancyError("occupancy_solve_tol must be positive")
+    if mu_tolerance <= 0.0:
+        raise OccupancyError("occupancy_mu_tol must be positive")
+    if weight_tolerance <= 0.0:
+        raise OccupancyError("occupancy_weight_tol must be positive")
+    if integration_epsabs <= 0.0:
+        raise OccupancyError("occupancy_integ_epsabs must be positive")
+    if integration_epsrel <= 0.0:
+        raise OccupancyError("occupancy_integ_epsrel must be positive")
+    if maximum_evaluations < 4:
+        raise OccupancyError("occupancy_maxeval must be at least 4")
+    if mode == "accurate" and not arguments.measure_only:
+        if not arguments.result_dir.is_dir():
+            raise OccupancyError(f"Result directory not found: {arguments.result_dir}")
+        for name in ("resigma.dat", "imsigma.dat"):
+            if not (arguments.result_dir / name).is_file():
+                raise OccupancyError(f"Frozen self-energy input is missing: {arguments.result_dir / name}")
+        if not arguments.dos.is_file():
+            raise OccupancyError(f"DOS table not found: {arguments.dos}")
+
+    print(
+        f"occupancy mode={mode} T={temperature:.17g} goal={goal:.17g} "
+        f"maxdx={maxdx:.17g} under={under:.17g} oldmu={old_mu:.17g}"
+    )
+
+    temporary_parent = arguments.result_dir if arguments.result_dir.is_dir() else Path(".")
+    with tempfile.TemporaryDirectory(prefix=".occupancy-", dir=temporary_parent) as temporary:
+        evaluator = OccupancyEvaluator(
+            arguments,
+            mode,
+            old_mu,
+            temperature,
+            weight_tolerance,
+            maximum_evaluations,
+            integration_epsabs,
+            integration_epsrel,
+            Path(temporary),
+            cache_requested,
+        )
+        current = evaluator.evaluate(old_mu)
+        print(
+            f"occupancy[{mode}] mu={old_mu:.17g} "
+            f"n={current.occupancy:.17g} weight={current.weight:.17g}"
+        )
+        write_history(arguments, iteration, old_mu, current.occupancy)
+
+        if arguments.measure_only:
+            convergence_step = previous_log_step(arguments.log, old_mu)
+            metrics = {
+                "version": 1,
+                "iteration": iteration,
+                "mode": mode,
+                "status": "measured",
+                "mu_old": f"{old_mu:.17g}",
+                "n_old": f"{current.occupancy:.17g}",
+                "mu_root": "none",
+                "mu_new": f"{old_mu:.17g}",
+                "n_new": f"{current.occupancy:.17g}",
+                "dx": "0",
+                "convergence_dx": (
+                    "none" if convergence_step is None else f"{convergence_step:.17g}"
+                ),
+                "goal": f"{goal:.17g}",
+                "error_old": f"{current.occupancy - goal:.17g}",
+                "error_new": f"{current.occupancy - goal:.17g}",
+                "weight_old": f"{current.weight:.17g}",
+                "weight_new": f"{current.weight:.17g}",
+                "bracketed": "false",
+                "limited": "false",
+                "evaluations": len(evaluator.cache),
+            }
+            write_metrics(arguments, metrics)
+            print(f"Measurement-only mode: {arguments.mu_output} was not changed.")
+            return
+
+        error_old = current.occupancy - goal
+        root_mu = None
+        bracketed = False
+        limited = False
+        if abs(error_old) <= solve_tolerance:
+            status = "within_tolerance"
+            new_mu = old_mu
+        else:
+            direction = 1.0 if error_old < 0.0 else -1.0
+            edge_mu = old_mu + direction * maxdx / under
+            edge = evaluator.evaluate(edge_mu)
+            error_edge = edge.occupancy - goal
+            response = direction * (edge.occupancy - current.occupancy)
+            if response < -solve_tolerance:
+                raise OccupancyError(
+                    "Frozen-spectrum filling did not increase in the expected mu direction"
+                )
+            if error_old * error_edge <= 0.0:
+                lower, upper = sorted((old_mu, edge_mu))
+                remaining_iterations = maximum_evaluations - len(evaluator.cache) - 1
+                if remaining_iterations < 1:
+                    raise OccupancyError(
+                        "Occupancy evaluation budget leaves no room for a bracketed solve"
+                    )
+                solution = root_scalar(
+                    lambda trial_mu: evaluator.evaluate(trial_mu, reserve=1).occupancy - goal,
+                    bracket=(lower, upper),
+                    method="brentq",
+                    xtol=mu_tolerance,
+                    rtol=4.0 * np.finfo(float).eps,
+                    maxiter=remaining_iterations,
+                )
+                if not solution.converged or not math.isfinite(solution.root):
+                    raise OccupancyError("Bracketed occupancy solve did not converge")
+                root_mu = float(solution.root)
+                root_evaluation = evaluator.evaluate(root_mu)
+                if abs(root_evaluation.occupancy - goal) > solve_tolerance:
+                    raise OccupancyError(
+                        f"Occupancy root residual {root_evaluation.occupancy - goal:.3g} "
+                        f"exceeds {solve_tolerance:.3g}"
+                    )
+                requested_dx = under * (root_mu - old_mu)
+                new_mu = old_mu + float(np.clip(requested_dx, -maxdx, maxdx))
+                bracketed = True
+                status = "bracketed"
+            else:
+                new_mu = old_mu + direction * maxdx
+                limited = True
+                status = "limited"
+
+        final = evaluator.evaluate(new_mu)
+        error_new = final.occupancy - goal
+        if abs(error_new) > abs(error_old) + solve_tolerance:
+            raise OccupancyError(
+                f"Occupancy update worsened the residual: {error_old:.17g} -> {error_new:.17g}"
+            )
+        dx = new_mu - old_mu
+        print(
+            f"mu: old={old_mu:.17g} root="
+            f"{root_mu if root_mu is not None else 'none'} "
+            f"new={new_mu:.17g} dx={dx:.17g} "
+            f"n_old={current.occupancy:.17g} n_new={final.occupancy:.17g}"
+        )
+
+        if cache_requested:
+            publish_cache(arguments, final, cache_sigma_clip)
+        metrics = {
+            "version": 1,
+            "iteration": iteration,
+            "mode": mode,
+            "status": status,
+            "mu_old": f"{old_mu:.17g}",
+            "n_old": f"{current.occupancy:.17g}",
+            "mu_root": "none" if root_mu is None else f"{root_mu:.17g}",
+            "mu_new": f"{new_mu:.17g}",
+            "n_new": f"{final.occupancy:.17g}",
+            "dx": f"{dx:.17g}",
+            "convergence_dx": f"{dx:.17g}",
+            "goal": f"{goal:.17g}",
+            "error_old": f"{error_old:.17g}",
+            "error_new": f"{error_new:.17g}",
+            "weight_old": f"{current.weight:.17g}",
+            "weight_new": f"{final.weight:.17g}",
+            "bracketed": str(bracketed).lower(),
+            "limited": str(limited).lower(),
+            "evaluations": len(evaluator.cache),
+        }
+        write_metrics(arguments, metrics)
+        atomic_append(
+            arguments.log,
+            f"{old_mu:.17g} {new_mu:.17g} {dx:.17g} "
+            f"{current.occupancy:.17g}\n",
+        )
+        atomic_write_text(arguments.mu_output, f"{new_mu:.17g}\n")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OccupancyError, OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(f"occupancy_control: {exc}", file=sys.stderr)
+        sys.exit(1)

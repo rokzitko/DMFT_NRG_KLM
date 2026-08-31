@@ -23,3 +23,4 @@ rm -f slurm-*.out
 
 # Other temporaries
 rm -rf imaw.dat.prev
+rm -rf .occupancy-* res/.occupancy-*

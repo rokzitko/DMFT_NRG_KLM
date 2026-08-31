@@ -6,28 +6,49 @@
 
 use strict;
 use warnings;
+use File::Basename qw(dirname);
 use File::Path qw(make_path);
+use File::Spec;
+use Getopt::Long qw(GetOptions);
 use POSIX qw(isfinite);
 
 my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 
+my ($mu_value, $re_requested, $im_requested);
+my $dos_file = "DOS.dat";
+GetOptions(
+  "mu-value=s" => \$mu_value,
+  "re-output=s" => \$re_requested,
+  "im-output=s" => \$im_requested,
+  "dos=s" => \$dos_file,
+) or die usage();
+
 my $result_dir = @ARGV ? shift @ARGV : "res";
-my $mu_file = @ARGV ? shift @ARGV : "param.mu";
-@ARGV and die "Usage: $0 [result_dir [mu_file]]\n";
+my $mu_file = @ARGV ? shift @ARGV : undef;
+@ARGV and die usage();
+defined($mu_value) && defined($mu_file)
+  and die "--mu-value and a chemical-potential file are mutually exclusive.\n";
+defined($re_requested) == defined($im_requested)
+  or die "--re-output and --im-output must be provided together.\n";
+$mu_file //= "param.mu";
 
 make_path($result_dir) unless -d $result_dir;
 -d $result_dir or die "Failed to create $result_dir.";
 
-open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
 my $mu;
-{
-  local $/;
-  $mu = <$mu_fh>;
+if (defined($mu_value)) {
+  $mu = parse_scalar($mu_value, "--mu-value");
+} else {
+  open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
+  {
+    local $/;
+    $mu = <$mu_fh>;
+  }
+  close($mu_fh);
+  defined $mu or die "Chemical potential not found in $mu_file";
+  chomp($mu);
+  $mu = parse_scalar($mu, $mu_file);
 }
-close($mu_fh);
-defined $mu or die "Chemical potential not found in $mu_file";
-chomp($mu);
-$mu = parse_scalar($mu, $mu_file);
 
 # Use the same causal self-energy floor as the self-energy reconstruction.
 chomp(my $sigma_clip = `getparam clipSigma param.loop`);
@@ -39,8 +60,21 @@ $sigma_clip > 0.0 or die;
 
 print("bandDOS mu=$mu sigma_clip=$sigma_clip\n");
 
-my $re_output = "$result_dir/reaw.dat";
-my $im_output = "$result_dir/imaw.dat";
+my $re_output = output_target($re_requested // "$result_dir/reaw.dat");
+my $im_output = output_target($im_requested // "$result_dir/imaw.dat");
+path_key($re_output) ne path_key($im_output)
+  or die "Real and imaginary outputs must be distinct files.\n";
+-d dirname($re_output) or die "Output directory does not exist for $re_output.\n";
+-d dirname($im_output) or die "Output directory does not exist for $im_output.\n";
+-f $dos_file or die "DOS table not found: $dos_file\n";
+my %protected = map { path_key($_) => $_ } (
+  "$result_dir/resigma.dat", "$result_dir/imsigma.dat", $dos_file, $mu_file,
+);
+for my $output ($re_output, $im_output) {
+  my $key = path_key($output);
+  exists($protected{$key})
+    and die "Output $output collides with input $protected{$key}.\n";
+}
 my $re_temporary = "$re_output.tmp.$$";
 my $im_temporary = "$im_output.tmp.$$";
 END {
@@ -48,7 +82,7 @@ END {
     unlink($im_temporary) if defined($im_temporary) && -e $im_temporary;
 }
 system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
-       "-d", "DOS.dat", "-x", $mu,
+       "-d", $dos_file, "-x", $mu,
        "-c", $sigma_clip, "-f", "1e-12",
        "$result_dir/resigma.dat", "$result_dir/imsigma.dat",
        $re_temporary, $im_temporary) == 0
@@ -63,6 +97,25 @@ require_same_mesh($sigma_re_mesh, $re_mesh, "real Hilbert output");
 require_same_mesh($sigma_re_mesh, $im_mesh, "imaginary Hilbert output");
 rename($re_temporary, $re_output) or die "Can't replace $re_output: $!";
 rename($im_temporary, $im_output) or die "Can't replace $im_output: $!";
+
+sub usage {
+  return "Usage: $0 [--mu-value VALUE] [--re-output FILE --im-output FILE] " .
+    "[--dos FILE] [result_dir [mu_file]]\n";
+}
+
+sub output_target {
+  my ($path) = @_;
+  return $path unless -l $path;
+  my $target = readlink($path);
+  defined($target) or die "Can't read output symlink $path: $!";
+  return $target if File::Spec->file_name_is_absolute($target);
+  return File::Spec->catfile(dirname($path), $target);
+}
+
+sub path_key {
+  my ($path) = @_;
+  return File::Spec->canonpath(File::Spec->rel2abs($path));
+}
 
 sub validate_table {
     my ($filename, $require_nonnegative) = @_;

@@ -127,6 +127,37 @@ class RunContext:
         return self.scalars[name]
 
 
+def current_chemical_potential(context: RunContext) -> float:
+    name = "param.mu.used" if (context.root / "param.mu.used").is_file() else "param.mu"
+    return context.scalar(name)
+
+
+def current_lattice_occupancy(context: RunContext) -> float:
+    metrics_path = context.root / "OCCUPANCY_METRICS"
+    if metrics_path.is_file():
+        values: dict[str, str] = {}
+        try:
+            for line in metrics_path.read_text(encoding="ascii").splitlines():
+                if not line.strip():
+                    continue
+                key, separator, value = line.partition("=")
+                if not separator or not key or not value or key in values:
+                    raise PlotError(f"malformed occupancy metrics in {metrics_path}")
+                values[key] = value
+        except (OSError, UnicodeError) as exc:
+            raise PlotError(f"failed to read {metrics_path}: {exc}") from exc
+        try:
+            lattice_n = float(values["n_old"])
+        except (KeyError, ValueError) as exc:
+            raise PlotError(f"invalid n_old in {metrics_path}") from exc
+        if not math.isfinite(lattice_n):
+            raise PlotError(f"non-finite n_old in {metrics_path}")
+        return lattice_n
+
+    occupancy = context.table("occupancy.log", columns=4, minimum_rows=1)
+    return float(occupancy[-1, 3])
+
+
 def parse_parameters(path: Path) -> RunParameters:
     if not path.is_file():
         raise PlotError(f"parameter file is missing: {path}")
@@ -590,9 +621,8 @@ def plot_local_spectral_function(context: RunContext) -> None:
     spectrum = context.table("imaw.dat", columns=2, minimum_rows=3, increasing_x=True)
     omega, spectral = spectrum.T
     custom = load_custom_average(context)
-    occupancy = context.table("occupancy.log", columns=4, minimum_rows=1)
-    lattice_n = float(occupancy[-1, 3])
-    chemical_potential = context.scalar("param.mu")
+    lattice_n = current_lattice_occupancy(context)
+    chemical_potential = current_chemical_potential(context)
     kinetic_energy = context.scalar("ekin.dat")
 
     figure, axes = plt.subplots(
@@ -891,7 +921,7 @@ def epsilon_resolved_data(
 
 def plot_epsilon_resolved_spectrum(context: RunContext) -> None:
     omega, real_sigma, imaginary_sigma = load_self_energy(context)
-    chemical_potential = context.scalar("param.mu")
+    chemical_potential = current_chemical_potential(context)
     epsilon_lower, epsilon_upper = bare_band_support(context)
     epsilon = np.linspace(epsilon_lower, epsilon_upper, MAP_EPSILON_POINTS)
     broad_limits = overview_limits(context, omega)
@@ -1002,7 +1032,7 @@ def plot_effective_medium(context: RunContext) -> None:
     require_matching_x(
         np.column_stack((omega, real_sigma)), spectrum, "self-energy and lattice spectrum"
     )
-    chemical_potential = context.scalar("param.mu")
+    chemical_potential = current_chemical_potential(context)
     limits = overview_limits(context, omega)
     selected = (omega >= limits[0]) & (omega <= limits[1])
     w = omega[selected]

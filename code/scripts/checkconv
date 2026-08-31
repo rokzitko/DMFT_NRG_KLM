@@ -6,19 +6,29 @@
 use strict;
 use warnings;
 use Getopt::Long qw(GetOptions);
+use POSIX qw(isfinite);
 
-my ($iter, $fn, $decision_file);
+my ($iter, $fn, $decision_file, $occupancy_metrics);
 $fn = "DIFFS_C";
 GetOptions(
     "iteration=i" => \$iter,
     "diffs=s" => \$fn,
     "decision=s" => \$decision_file,
+    "occupancy-metrics=s" => \$occupancy_metrics,
 ) or die "Invalid arguments.\n";
 
 chomp(my $convergencelimit = `getparam conveps param.loop`);
 chomp(my $convwindow = `getparam convwindow param.loop`);
 chomp(my $miniter = `getparam miniter param.loop`);
 chomp(my $maxiter = `getparam maxiter param.loop`);
+chomp(my $occupancy_limit = `getparam occupancy_solve_tol param.loop 2>/dev/null`);
+chomp(my $mu_limit = `getparam occupancy_mu_tol param.loop 2>/dev/null`);
+$occupancy_limit = 1e-8 if $occupancy_limit eq "";
+$mu_limit = 1e-10 if $mu_limit eq "";
+$occupancy_limit = finite_number($occupancy_limit, "occupancy_solve_tol");
+$mu_limit = finite_number($mu_limit, "occupancy_mu_tol");
+$occupancy_limit > 0.0 or die "occupancy_solve_tol must be positive.\n";
+$mu_limit > 0.0 or die "occupancy_mu_tol must be positive.\n";
 
 die "Invalid convwindow=$convwindow. Stopped" if $convwindow < 1;
 
@@ -27,6 +37,25 @@ if (!defined $iter) {
 }
 $iter =~ /\A\d+\z/ && $iter >= 1 or die "Invalid iteration: $iter\n";
 print "checkconv, iter=$iter miniter=$miniter maxiter=$maxiter convwindow=$convwindow\n";
+
+my $occupancy_ok = 1;
+if (defined($occupancy_metrics)) {
+    my %metrics = read_metrics($occupancy_metrics);
+    $metrics{version} eq "1"
+        or die "Unsupported occupancy metrics version in $occupancy_metrics.\n";
+    $metrics{iteration} =~ /\A\d+\z/ && $metrics{iteration} == $iter
+        or die "Occupancy metrics iteration does not match iteration $iter.\n";
+    my $occupancy_error = abs(finite_number($metrics{error_old}, "error_old"));
+    my $step;
+    if ($metrics{convergence_dx} ne "none") {
+        $step = abs(finite_number($metrics{convergence_dx}, "convergence_dx"));
+    }
+    $occupancy_ok = ($occupancy_error <= $occupancy_limit
+        && defined($step) && $step <= $mu_limit) ? 1 : 0;
+    my $step_text = defined($step) ? $step : "unknown";
+    print "occupancy error=$occupancy_error limit=$occupancy_limit " .
+        "mu_step=$step_text limit=$mu_limit\n";
+}
 
 my $decision = "continue";
 my $abs;
@@ -49,11 +78,11 @@ if ($iter > 1 && -e $fn) {
             $abs = $a if $a > $abs;
         }
 
-        if ($abs < $convergencelimit && $iter > $miniter) {
+        if ($abs < $convergencelimit && $occupancy_ok && $iter > $miniter) {
             print "Convergence achieved! $abs < $convergencelimit\n";
             $decision = "converged";
         } else {
-            print "Not converged yet. $abs > $convergencelimit\n";
+            print "Not converged yet. spectral=$abs occupancy_ok=$occupancy_ok\n";
             if ($iter > $maxiter) {
                 print "Iteration limit exceeded, maxiter=$maxiter, stopping here.\n";
                 $decision = "stop";
@@ -72,4 +101,33 @@ if (defined $decision_file) {
     system("scripts/post") == 0 or warn("Running scripts/post failed");
 } elsif ($decision eq "stop") {
     system("touch", "STOP") == 0 or die "Can't create STOP: $?";
+}
+
+sub read_metrics {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't open $file: $!\n";
+    my %values;
+    while (<$fh>) {
+        chomp;
+        next if /^\s*$/;
+        /\A([A-Za-z][A-Za-z0-9_]*)=(\S+)\z/
+            or die "Malformed occupancy metric in $file at line $.\n";
+        exists($values{$1}) and die "Duplicate occupancy metric $1 in $file.\n";
+        $values{$1} = $2;
+    }
+    close($fh) or die "Can't close $file: $!\n";
+    for my $key (qw(version iteration error_old convergence_dx)) {
+        exists($values{$key}) or die "Missing occupancy metric $key in $file.\n";
+    }
+    return %values;
+}
+
+sub finite_number {
+    my ($text, $context) = @_;
+    defined($text)
+        && $text =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
+        or die "Invalid numeric $context=$text.\n";
+    my $value = 0.0 + $text;
+    isfinite($value) or die "Non-finite numeric $context=$text.\n";
+    return $value;
 }

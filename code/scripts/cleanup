@@ -24,7 +24,7 @@ rm -f param.shift
 # Expectation values
 rm -f custom custom.avg customfdm customfdm.avg
 # Occupancy control
-rm -f occupancy.log occupancy.control.log
+rm -f occupancy.log occupancy.control.log OCCUPANCY_METRICS
 # Broyden mixing
 rm -f broyden.log
 # Transport

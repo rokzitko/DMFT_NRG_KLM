@@ -4,17 +4,31 @@
 
 use strict;
 use warnings;
+use Digest::SHA;
 use File::Basename qw(dirname);
 use File::Spec;
+use Getopt::Long qw(GetOptions);
 use Math::Complex;
 use POSIX qw(isfinite);
 
 my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 
+my ($h0_real, $h0_imaginary, $h0_mu_file);
+my $dos_file = "DOS.dat";
+GetOptions(
+    "h0-real=s" => \$h0_real,
+    "h0-imaginary=s" => \$h0_imaginary,
+    "h0-mu=s" => \$h0_mu_file,
+    "dos=s" => \$dos_file,
+) or die usage();
+my $cache_count = grep { defined($_) } ($h0_real, $h0_imaginary, $h0_mu_file);
+$cache_count == 0 || $cache_count == 3
+    or die "--h0-real, --h0-imaginary, and --h0-mu must be provided together.\n";
+
 my $result_dir = @ARGV ? shift @ARGV : "res";
 my $mu_file = @ARGV ? shift @ARGV : "param.mu";
 my $gamma_output = @ARGV ? shift @ARGV : "Delta.raw.dat";
-@ARGV and die "Usage: $0 [result_dir [mu_file [GammaOutput]]]\n";
+@ARGV and die usage();
 
 sub read_table {
     my ($filename) = @_;
@@ -62,12 +76,53 @@ $mu = parse_scalar($mu, $mu_file);
 
 print "dmftDOS-stable - mu=$mu sigma_clip=$sigma_clip\n";
 
+if ($cache_count) {
+    my %metadata = read_cache_metadata($h0_mu_file);
+    my $cache_mu = $metadata{mu};
+    my $scale = abs($cache_mu) > abs($mu) ? abs($cache_mu) : abs($mu);
+    $scale = 1.0 if $scale < 1.0;
+    abs($cache_mu - $mu) <= 1e-13 * $scale
+        or die "Cached H0 chemical potential does not match $mu_file.\n";
+    $scale = abs($metadata{clip_sigma}) > abs($sigma_clip)
+        ? abs($metadata{clip_sigma}) : abs($sigma_clip);
+    $scale = 1.0 if $scale < 1.0;
+    abs($metadata{clip_sigma} - $sigma_clip) <= 1e-13 * $scale
+        or die "Cached H0 self-energy clip does not match param.loop.\n";
+    my %sources = (
+        resigma_sha256 => "${result_dir}/resigma.dat",
+        imsigma_sha256 => "${result_dir}/imsigma.dat",
+        dos_sha256 => $dos_file,
+        h0_real_sha256 => $h0_real,
+        h0_imaginary_sha256 => $h0_imaginary,
+    );
+    for my $key (sort keys %sources) {
+        sha256_file($sources{$key}) eq $metadata{$key}
+            or die "Cached H0 provenance mismatch for $sources{$key}.\n";
+    }
+    print "dmftDOS-stable - using cached H0 at mu=$cache_mu\n";
+}
+
 my $prefix = "$result_dir/";
 my $reGtmp = "$result_dir/reG.dat.TMP";
 my $imGtmp = "$result_dir/imG.dat.TMP";
 my $reFtmp = "$result_dir/reF.dat.TMP";
 my $imFtmp = "$result_dir/imF.dat.TMP";
 my $gamma_target = output_target($gamma_output);
+my @inputs = (
+    "${prefix}resigma.dat", "${prefix}imsigma.dat", $mu_file, $dos_file,
+);
+push(@inputs, $h0_real, $h0_imaginary, $h0_mu_file) if $cache_count;
+my %inputs = map { path_key($_) => $_ } @inputs;
+my $gamma_key = path_key($gamma_target);
+exists($inputs{$gamma_key})
+    and die "Gamma output $gamma_output collides with input $inputs{$gamma_key}.\n";
+if ($cache_count) {
+    path_key($h0_real) ne path_key($h0_imaginary)
+        or die "Cached H0 real and imaginary tables must be distinct.\n";
+}
+-f $dos_file or die "DOS table not found: $dos_file\n";
+-d dirname($gamma_target)
+    or die "Output directory does not exist for $gamma_target.\n";
 my $gamma_publish = "$gamma_target.tmp.$$";
 END {
     unlink(grep { defined($_) && -e $_ }
@@ -77,19 +132,23 @@ unlink($reGtmp, $imGtmp, $reFtmp, $imFtmp);
 
 # Evaluate G_local and F_local at the same chemical potential. Without -G,
 # hilb stores both with the same factor -1/pi, which cancels in their ratio.
+if (!$cache_count) {
+    system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
+           "-n", "0", "-d", $dos_file, "-x", $mu,
+           "-c", $sigma_clip, "-f", "1e-12",
+           "${prefix}resigma.dat", "${prefix}imsigma.dat", $reGtmp, $imGtmp)
+        == 0 or die "hilb failed: $?";
+}
 system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
-       "-n", "0", "-d", "DOS.dat", "-x", $mu,
-       "-c", $sigma_clip, "-f", "1e-12",
-       "${prefix}resigma.dat", "${prefix}imsigma.dat", $reGtmp, $imGtmp)
-    == 0 or die "hilb failed: $?";
-system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
-       "-n", "1", "-d", "DOS.dat", "-x", $mu,
+       "-n", "1", "-d", $dos_file, "-x", $mu,
        "-c", $sigma_clip, "-f", "1e-12",
        "${prefix}resigma.dat", "${prefix}imsigma.dat", $reFtmp, $imFtmp)
     == 0 or die "hilb failed: $?";
 
-my ($omega, $imG) = read_table($imGtmp);
-my ($reGomega, $reG) = read_table($reGtmp);
+my $reGsource = $cache_count ? $h0_real : $reGtmp;
+my $imGsource = $cache_count ? $h0_imaginary : $imGtmp;
+my ($omega, $imG) = read_table($imGsource);
+my ($reGomega, $reG) = read_table($reGsource);
 my ($imFomega, $imF) = read_table($imFtmp);
 my ($reFomega, $reF) = read_table($reFtmp);
 my ($sigma_re_omega) = read_table("${prefix}resigma.dat");
@@ -99,6 +158,8 @@ require_same_mesh($sigma_re_omega, $omega, "ImG output");
 require_same_mesh($omega, $reGomega, "ReG output");
 require_same_mesh($omega, $imFomega, "ImF output");
 require_same_mesh($omega, $reFomega, "ReF output");
+grep { $_ < 0.0 } @$imG
+    and die "Cached or generated H0 spectrum contains a negative value.\n";
 
 open(my $gamma_fh, ">", $gamma_publish) or die "Can't write $gamma_publish: $!";
 
@@ -119,6 +180,52 @@ for (my $i = 0; $i < $len; $i++) {
 close($gamma_fh) or die "Can't close $gamma_publish: $!";
 rename($gamma_publish, $gamma_target) or die "Can't replace $gamma_target: $!";
 
+sub usage {
+    return "Usage: $0 [--h0-real FILE --h0-imaginary FILE --h0-mu FILE] " .
+        "[--dos FILE] [result_dir [mu_file [GammaOutput]]]\n";
+}
+
+sub read_cache_metadata {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!";
+    my %values;
+    while (<$fh>) {
+        chomp;
+        next if /^\s*$/;
+        /\A([a-z][a-z0-9_]*)=(\S+)\z/
+            or die "Malformed H0 cache metadata in $file at line $.\n";
+        exists($values{$1}) and die "Duplicate H0 cache metadata $1 in $file.\n";
+        $values{$1} = $2;
+    }
+    close($fh) or die "Can't close $file: $!";
+    for my $key (qw(
+        version mu clip_sigma resigma_sha256 imsigma_sha256 dos_sha256
+        h0_real_sha256 h0_imaginary_sha256
+    )) {
+        exists($values{$key}) or die "Missing H0 cache metadata $key in $file.\n";
+    }
+    $values{version} eq "1" or die "Unsupported H0 cache metadata version.\n";
+    $values{mu} = parse_scalar($values{mu}, "mu in $file");
+    $values{clip_sigma} = parse_scalar($values{clip_sigma}, "clip_sigma in $file");
+    for my $key (qw(
+        resigma_sha256 imsigma_sha256 dos_sha256
+        h0_real_sha256 h0_imaginary_sha256
+    )) {
+        $values{$key} =~ /\A[0-9a-f]{64}\z/
+            or die "Invalid H0 cache digest $key in $file.\n";
+    }
+    return %values;
+}
+
+sub sha256_file {
+    my ($file) = @_;
+    open(my $fh, "<:raw", $file) or die "Can't read $file: $!";
+    my $digest = Digest::SHA->new(256);
+    $digest->addfile($fh);
+    close($fh) or die "Can't close $file: $!";
+    return $digest->hexdigest;
+}
+
 sub output_target {
     my ($path) = @_;
     return $path unless -l $path;
@@ -126,6 +233,11 @@ sub output_target {
     defined($target) or die "Can't read output symlink $path: $!";
     return $target if File::Spec->file_name_is_absolute($target);
     return File::Spec->catfile(dirname($path), $target);
+}
+
+sub path_key {
+    my ($path) = @_;
+    return File::Spec->canonpath(File::Spec->rel2abs($path));
 }
 
 sub parse_scalar {
