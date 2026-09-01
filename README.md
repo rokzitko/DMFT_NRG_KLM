@@ -33,6 +33,174 @@ Two modes of operation:
 
 Rok Zitko, 2026
 
+# Reference calculation
+
+The figures below summarize the converged reference solution in
+`reference_results/`.  It is a doped Kondo lattice on the Bethe lattice, with
+the following parameters:
+
+| Quantity | Value |
+|---|---|
+| Bare density of states | Semicircular, with half-bandwidth $D=1$ |
+| Localized moment | $S=1/2$ |
+| Couplings | $J_K=0.4$, $U=0$, $B=0$ |
+| Temperature | $T=0.01$ |
+| Conduction-band filling | $n=0.8$ |
+| Chemical potential | $\mu=-0.19660824$ |
+| NRG discretization | $\Lambda=2$, $N_z=4$ |
+
+All energies are measured in units of $D$, and one-particle spectral
+functions are given per conduction-electron spin.  The transport quantities
+use the dimensionless normalization defined in [Bubble and conductivity
+normalization](#bubble-and-conductivity-normalization); they are not SI
+conductivities.  Each displayed image links to the corresponding PDF figure.
+
+## One-particle spectra and effective medium
+
+### Hybridization function
+
+[![Converged hybridization function](reference_results/plots/02_hybridization.png)](reference_results/plots/02_hybridization.pdf)
+
+The converged bath spectrum
+$\Gamma_\Delta(\omega)=-\operatorname{Im}\Delta^R(\omega)$ has a narrow,
+asymmetric depletion near the Fermi level.  For the semicircular Bethe lattice
+this structure is directly tied to the local propagator through
+$\Delta^R=G_{\mathrm{loc}}^R/4$.  The dashed line in the right panel is the
+numerical floor $10^{-6}$; it is not a physical scattering scale.
+
+### Local spectral function
+
+[![Local spectral function](reference_results/plots/05_local_spectral_function.png)](reference_results/plots/05_local_spectral_function.pdf)
+
+The local spectrum has a pronounced pseudogap-like minimum slightly above the
+Fermi level.  Its displacement from $\omega=0$ reflects the particle-hole
+asymmetry at filling $n=0.8$.  The expectation value
+$\langle\mathbf S_d\mathbin{\cdot}\mathbf S_K\rangle=-0.3123$ signals strong
+antiferromagnetic Kondo correlations,
+while the lattice filling agrees with its target to the displayed precision.
+
+### Self-energy over the full band
+
+[![Real and imaginary parts of the self-energy over the full band](reference_results/plots/06_self_energy_overview.png)](reference_results/plots/06_self_energy_overview.pdf)
+
+Both components of the retarded self-energy show a sharp low-energy
+resonance, with $\operatorname{Im}\Sigma^R\leq 0$ as required by causality.
+The associated strong dispersion of $\operatorname{Re}\Sigma^R$ and peak in
+$-\operatorname{Im}\Sigma^R$ produce the narrow depletion in the local
+spectrum and reconstruct the band near the Fermi level.
+
+### Low-frequency self-energy
+
+[![Low-frequency real and imaginary parts of the self-energy](reference_results/plots/07_self_energy_low_frequency.png)](reference_results/plots/07_self_energy_low_frequency.pdf)
+
+On the thermal scale, the self-energy resonance is centered near
+$\omega=0.02$, rather than at the Fermi level.  This low-frequency view makes
+the particle-hole asymmetry and the relation between the dispersive and
+absorptive parts of the resonance explicit.
+
+### Band-energy-resolved spectrum
+
+[![Band-energy-resolved spectral function](reference_results/plots/10_epsilon_resolved_spectrum.png)](reference_results/plots/10_epsilon_resolved_spectrum.pdf)
+
+The intensity map shows
+$A_\epsilon(\omega)=-\operatorname{Im}G_\epsilon^R(\omega)/\pi$.  The solid
+white curve follows
+$\epsilon=\omega+\mu-\operatorname{Re}\Sigma^R(\omega)$, while the dashed line
+is the bare dispersion.  Their strong separation and the bending of the
+spectral ridges near the Fermi level display the interaction-induced
+reconstruction of the conduction band.  The dotted lines mark $\omega=0$ and
+$\epsilon_F=\mu-\operatorname{Re}\Sigma^R(0)$.
+
+### Complex effective medium
+
+[![Complex effective medium and corresponding local spectrum](reference_results/plots/11_effective_medium.png)](reference_results/plots/11_effective_medium.pdf)
+
+The trajectory
+$\zeta(\omega)=\omega+\mu-\Sigma^R(\omega)$ gives the complex argument at
+which the bare Hilbert transform is evaluated.  The black segment denotes the
+support of the bare band.  The large excursion into the upper half-plane near
+the self-energy resonance corresponds to the low-energy loss of spectral
+weight shown in the right panel; color labels the fermionic frequency.
+
+## Optical response
+
+### Optical conductivity
+
+[![Optical conductivity](reference_results/plots/04_optical_conductivity.png)](reference_results/plots/04_optical_conductivity.pdf)
+
+Relative to the dc value, the low-frequency response is suppressed and
+spectral weight is transferred to a broad maximum near $\Omega=0.35$.  This
+finite-frequency structure is consistent with transitions between the
+reconstructed low-energy branches.  The displayed dc and thermoelectric
+quantities follow the dimensionless conventions stated below.
+
+### Optical sum rule
+
+[![Cumulative optical sum rule](reference_results/plots/12_optical_sum_rule.png)](reference_results/plots/12_optical_sum_rule.pdf)
+
+The cumulative optical weight is normalized by the Bethe-lattice sum-rule
+value $(3\pi^2/4)(-E_{\mathrm{kin}})$.  It reaches 99 percent of this value by
+$\Omega=1.088$; the final trapezoidal ratio is $1.0015139$, an agreement at
+about the $1.5\times 10^{-3}$ level.  The more accurate quadrature used for
+the numerical sum-rule diagnostic is described in [Optical f-sum
+rule](#optical-f-sum-rule).
+
+## Bare band and NRG discretization
+
+### Density of states and transport function
+
+[![Bare density of states and transport function](reference_results/plots/09_bare_dos_transport.png)](reference_results/plots/09_bare_dos_transport.pdf)
+
+The semicircular density of states is normalized to one per spin.  The Bethe
+transport function obeys
+$\Phi(\epsilon)=(1-\epsilon^2)\rho_0(\epsilon)$ for $D=1$, with
+$\int d\epsilon\,\Phi(\epsilon)=3/4$.  The values printed in the figure show
+the accuracy with which these continuum normalizations are represented.
+
+### Improved discretization functions
+
+[![Positive- and negative-frequency discretization functions](reference_results/plots/03_discretization_functions.png)](reference_results/plots/03_discretization_functions.pdf)
+
+The functions $f_+(x)$ and $f_-(x)$ adapt the logarithmic NRG intervals to the
+asymmetric hybridization spectrum.  Their deviations from the large-$x$
+limit occur where the bath varies most rapidly.  Both branches approach
+$(1-\Lambda^{-1})/\ln\Lambda=0.7213$, as required once the bath becomes
+locally featureless on a logarithmic scale.
+
+### Frequency resolution
+
+[![Density of points on the real-frequency mesh](reference_results/plots/08_mesh_density.png)](reference_results/plots/08_mesh_density.pdf)
+
+The real-frequency mesh retains the underlying geometric resolution of about
+231 points per decade while placing additional points near rapid spectral
+variation and the band edges.  Around the Fermi level it preserves
+logarithmic resolution on scales well below $T=0.01$; on a linear scale the
+enhanced resolution follows the structure of the bath rather than a uniform
+spacing.
+
+## Convergence and spectral consistency
+
+### DMFT convergence
+
+[![Convergence of the DMFT iteration](reference_results/plots/01_convergence.png)](reference_results/plots/01_convergence.pdf)
+
+The integrated difference between consecutive lattice Green-function spectra
+falls below $10^{-8}$ at the final DMFT step.  The lattice-versus-local norm is
+a separate self-consistency measure and saturates at a few times $10^{-7}$; the
+pointwise and integrated residuals are resolved in the spectral-closure
+figure below.
+
+### Spectral closure
+
+[![Spectral consistency and DMFT closure](reference_results/plots/13_spectral_closure.png)](reference_results/plots/13_spectral_closure.pdf)
+
+The lattice spectrum, the impurity spectrum reconstructed from the Dyson
+equation, and an independent lattice evaluation are indistinguishable on the
+scale of the upper-left panel.  Pointwise differences remain of order
+$10^{-6}$ for DMFT closure and a few $10^{-5}$ for the independent frequency
+mesh.  The total spectral weights and fillings obtained from the local and
+lattice spectra agree within a few $10^{-8}$.
+
 # Conventions
 
 This document defines the normalization and sign conventions used by this
