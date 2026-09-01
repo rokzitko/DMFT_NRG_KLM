@@ -134,12 +134,14 @@ unlink($reGtmp, $imGtmp, $reFtmp, $imFtmp);
 # hilb stores both with the same factor -1/pi, which cancels in their ratio.
 if (!$cache_count) {
     system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
+           "--algorithm", "analytic",
            "-n", "0", "-d", $dos_file, "-x", $mu,
            "-c", $sigma_clip, "-f", "1e-12",
            "${prefix}resigma.dat", "${prefix}imsigma.dat", $reGtmp, $imGtmp)
         == 0 or die "hilb failed: $?";
 }
 system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
+       "--algorithm", "analytic",
        "-n", "1", "-d", $dos_file, "-x", $mu,
        "-c", $sigma_clip, "-f", "1e-12",
        "${prefix}resigma.dat", "${prefix}imsigma.dat", $reFtmp, $imFtmp)

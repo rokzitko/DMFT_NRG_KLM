@@ -82,6 +82,7 @@ END {
     unlink($im_temporary) if defined($im_temporary) && -e $im_temporary;
 }
 system("hilb", "-v", "-i", "steffen", "--gsl-error-policy", "warn",
+       "--algorithm", "analytic",
        "-d", $dos_file, "-x", $mu,
        "-c", $sigma_clip, "-f", "1e-12",
        "$result_dir/resigma.dat", "$result_dir/imsigma.dat",
