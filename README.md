@@ -62,7 +62,7 @@ conductivities.  Each displayed image links to the corresponding PDF figure.
 [![Converged hybridization function](reference_results/plots/02_hybridization.png)](reference_results/plots/02_hybridization.pdf)
 
 The converged bath spectrum
-$\Gamma_\Delta(\omega)=-\operatorname{Im}\Delta^R(\omega)$ has a narrow,
+$\Gamma_\Delta(\omega)=-\mathrm{Im}\Delta^R(\omega)$ has a narrow,
 asymmetric depletion near the Fermi level.  For the semicircular Bethe lattice
 this structure is directly tied to the local propagator through
 $\Delta^R=G_{\mathrm{loc}}^R/4$.  The dashed line in the right panel is the
@@ -84,9 +84,9 @@ while the lattice filling agrees with its target to the displayed precision.
 [![Real and imaginary parts of the self-energy over the full band](reference_results/plots/06_self_energy_overview.png)](reference_results/plots/06_self_energy_overview.pdf)
 
 Both components of the retarded self-energy show a sharp low-energy
-resonance, with $\operatorname{Im}\Sigma^R\leq 0$ as required by causality.
-The associated strong dispersion of $\operatorname{Re}\Sigma^R$ and peak in
-$-\operatorname{Im}\Sigma^R$ produce the narrow depletion in the local
+resonance, with $\mathrm{Im}\Sigma^R\leq 0$ as required by causality.
+The associated strong dispersion of $\mathrm{Re}\Sigma^R$ and peak in
+$-\mathrm{Im}\Sigma^R$ produce the narrow depletion in the local
 spectrum and reconstruct the band near the Fermi level.
 
 ### Low-frequency self-energy
@@ -103,13 +103,13 @@ absorptive parts of the resonance explicit.
 [![Band-energy-resolved spectral function](reference_results/plots/10_epsilon_resolved_spectrum.png)](reference_results/plots/10_epsilon_resolved_spectrum.pdf)
 
 The intensity map shows
-$A_\epsilon(\omega)=-\operatorname{Im}G_\epsilon^R(\omega)/\pi$.  The solid
+$A_\epsilon(\omega)=-\mathrm{Im}G_\epsilon^R(\omega)/\pi$.  The solid
 white curve follows
-$\epsilon=\omega+\mu-\operatorname{Re}\Sigma^R(\omega)$, while the dashed line
+$\epsilon=\omega+\mu-\mathrm{Re}\Sigma^R(\omega)$, while the dashed line
 is the bare dispersion.  Their strong separation and the bending of the
 spectral ridges near the Fermi level display the interaction-induced
 reconstruction of the conduction band.  The dotted lines mark $\omega=0$ and
-$\epsilon_F=\mu-\operatorname{Re}\Sigma^R(0)$.
+$\epsilon_F=\mu-\mathrm{Re}\Sigma^R(0)$.
 
 ### Complex effective medium
 
@@ -404,7 +404,7 @@ the normalized-DOS identity `H_1(z)=zH_0(z)-1` gives the stable update
 Only the spectral part of this raw complex update enters the iterative state:
 
 ```math
-\Gamma_\Delta(\omega)=-\operatorname{Im}\Delta^R(\omega)\geq 0.
+\Gamma_\Delta(\omega)=-\mathrm{Im}\Delta^R(\omega)\geq 0.
 ```
 
 `Delta.dat` stores `Gamma_Delta` directly, with no factor of `1/pi`. Its
@@ -413,8 +413,8 @@ complex hybridization is reconstructed from this one authoritative table:
 
 ```math
 \begin{aligned}
-\operatorname{Im}\Delta^R(\omega)&=-\Gamma_\Delta(\omega),\\
-\operatorname{Re}\Delta^R(\omega)&=\texttt{param.eps}
+\mathrm{Im}\Delta^R(\omega)&=-\Gamma_\Delta(\omega),\\
+\mathrm{Re}\Delta^R(\omega)&=\texttt{param.eps}
 +\frac{1}{\pi}\,\mathcal P\!\int dE\,
 \frac{\Gamma_\Delta(E)}{\omega-E}.
 \end{aligned}
