@@ -5,9 +5,12 @@
 use strict;
 use warnings;
 
+my $parameter_file = shift // "param";
+@ARGV and die "Usage: $0 [parameter-file]\n";
+
 my $hybfn = "Delta.dat";
 -s $hybfn or die "Hybridisation funcrtion not found.";
-system("nrgchain") == 0 or die "nrgchain failed: $?";
+system("nrgchain", $parameter_file) == 0 or die "nrgchain failed: $?";
 -s "xi.dat" && -s "zeta.dat" && -s "theta.dat" or die "Wilson chain coefficients not found.";
 
 system("mv xi.dat xi1.dat") == 0 or die;

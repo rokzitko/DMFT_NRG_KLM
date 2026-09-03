@@ -79,9 +79,11 @@ model=model.m
 fixeps=1e-10
 
 Lambda=2.0
-# Nmax must be set manually!
+# Nmax and explicit Tmin are mutually exclusive.
+# A positive Tmin_ratio derives Tmin=T*Tmin_ratio and overrides Nmax.
 Nmax=54
 #Tmin=1e-7
+#Tmin_ratio=1e-5
 keepmin=500
 keepenergy=10
 keep=10000

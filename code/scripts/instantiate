@@ -7,6 +7,7 @@ use strict;
 use warnings;
 use File::Copy;
 use Math::Trig;
+use POSIX qw(isfinite);
 
 my $path = "template/";
 
@@ -16,6 +17,7 @@ my $diag = "diag -B";
 my $unitary = "unitary -B";
 
 my $verbose = 1;
+my $number_pattern = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 
 # Split param file into sections
 my $fnparam = "param";
@@ -28,13 +30,23 @@ while (<F>) {
         my $fnout = "$fnparam.$section";
         open (O, ">$fnout") or die "Cant open $fnout.";
     }
-    print O if $section ne "";
+    if ($section ne "") {
+        # nrgchain receives one resolved Nmax below, including in Tmin mode.
+        next if $section eq "param" && /^\s*Nmax\s*=/;
+        print O;
+    }
 }
 close O if $section ne "";
 close F;
 
-system("scripts/wilson") == 0 or die "wilson failed: $?";
-my $nr = getparam("Nmax");
+my %solver_params = read_parameters($fnparam);
+my $nr = resolve_nmax(\%solver_params);
+open(my $chain_param, ">>", "$fnparam.param")
+    or die "Can't open $fnparam.param for appending: $!\n";
+print {$chain_param} "\nNmax=$nr\n";
+close($chain_param) or die "Can't close $fnparam.param: $!\n";
+
+system("scripts/wilson", "$fnparam.param") == 0 or die "wilson failed: $?";
 
 ### Translate data.in -> data
 my $fnin = "$path/data.in";
@@ -238,6 +250,139 @@ sub getparam
     }
     close G;
     die "Parsing failure: $keyword not found.";
+}
+
+sub read_parameters
+{
+    my $filename = shift;
+    open(my $fh, "<", $filename) or die "Can't open $filename for reading: $!\n";
+    my %parameters;
+    my $section = "";
+    while (<$fh>) {
+        chomp;
+        s/\r$//;
+        if (/^\s*\[([^]]+)\]\s*$/) {
+            $section = $1;
+            next;
+        }
+        next if $section ne "param" || /^\s*(?:#|$)/;
+        if (/^\s*([^=\s]+)\s*=\s*(.*?)\s*$/) {
+            $parameters{$1} = $2;
+        }
+    }
+    close($fh) or die "Can't close $filename: $!\n";
+    return %parameters;
+}
+
+sub numeric_parameter
+{
+    my ($parameters, $name, $default) = @_;
+    return $default if !exists $parameters->{$name};
+    my $text = $parameters->{$name};
+    $text =~ /\A$number_pattern\z/
+        or die "$name must be a finite number: $text\n";
+    my $value = 0.0 + $text;
+    isfinite($value) or die "$name must be a finite number: $text\n";
+    my $significand = $text;
+    $significand =~ s/[eE].*$//;
+    $significand =~ s/[+.\-]//g;
+    $value != 0.0 || $significand !~ /[1-9]/
+        or die "$name must be a finite representable number: $text\n";
+    return $value;
+}
+
+sub integer_parameter
+{
+    my ($parameters, $name) = @_;
+    my $text = $parameters->{$name};
+    $text =~ /\A-?\d+\z/ or die "$name must be an integer: $text\n";
+    return $text;
+}
+
+sub validated_nmax
+{
+    my $text = shift;
+    $text = "$text";
+    $text =~ s/^0+(?=\d)//;
+    $text =~ /\A\d{1,3}\z/ && $text >= 1 && $text < 999
+        or die "Nmax must be an integer in the range 1..998: $text\n";
+    return 0 + $text;
+}
+
+sub resolve_nmax
+{
+    my $parameters = shift;
+    my $has_nmax = exists $parameters->{Nmax};
+    my $has_tmin = exists $parameters->{Tmin};
+
+    $has_nmax && $has_tmin
+        and die "Specify either Nmax or Tmin, not both!\n";
+
+    my $nmax = $has_nmax
+        ? integer_parameter($parameters, "Nmax")
+        : undef;
+    my $tmin = 0.0;
+
+    if (exists $parameters->{T} && exists $parameters->{Tmin_ratio}) {
+        my $temperature = numeric_parameter($parameters, "T");
+        my $ratio = numeric_parameter($parameters, "Tmin_ratio");
+        if ($temperature > 0 && $ratio > 0) {
+            $tmin = $temperature * $ratio;
+            isfinite($tmin) && $tmin > 0
+                or die "T*Tmin_ratio must be a finite representable number\n";
+            print "Tmin_ratio ==> Tmin=$tmin\n";
+        }
+    }
+
+    if ($has_tmin) {
+        $tmin = numeric_parameter($parameters, "Tmin");
+        print "Tmin=$tmin\n";
+    }
+
+    if ($tmin > 0) {
+        $nmax = nmax_from_tmin($parameters, $tmin);
+        print "Tmin=$tmin ==> Nmax=$nmax\n";
+    }
+
+    defined($nmax)
+        or die "Specify Nmax, a positive Tmin, or positive T and Tmin_ratio\n";
+    return validated_nmax($nmax);
+}
+
+sub nmax_from_tmin
+{
+    my ($parameters, $tmin) = @_;
+    my $lambda = numeric_parameter($parameters, "Lambda", 2.0);
+    $lambda > 1.0 or die "Lambda must be greater than 1\n";
+    my $z = numeric_parameter($parameters, "z", 1.0);
+    0.0 < $z && $z <= 1.0 or die "z must satisfy 0 < z <= 1\n";
+    my $bandrescale = numeric_parameter($parameters, "bandrescale", 1.0);
+    $bandrescale > 0.0 or die "bandrescale must be positive\n";
+
+    my $discretization = exists $parameters->{discretization}
+        ? $parameters->{discretization}
+        : "Z";
+    my $scheme = substr($discretization, 0, 1);
+    $scheme eq "C" || $scheme eq "Y" || $scheme eq "Z"
+        or die "Unknown discretization: $discretization\n";
+
+    my $prefactor = $scheme eq "Y"
+        ? (1.0 + 1.0/$lambda)/2.0
+        : (1.0 - 1.0/$lambda)/log($lambda);
+    my $sc0 = $prefactor * $lambda**(1.0 - $z);
+    my $nmax = 0;
+    while (1) {
+        my $n = $nmax + 1;
+        my $scale = $sc0 * $lambda**(-($n - 1.0)/2.0) * $bandrescale;
+        isfinite($scale) or die "Wilson scale is not finite\n";
+        last if $scale < $tmin;
+        $nmax++;
+        $nmax < 999
+            or die "Tmin resolves to Nmax >= 999, unsupported by nrginit\n";
+    }
+    $nmax > 0
+        or die "Tmin is above the first Wilson scale and resolves to Nmax=0\n";
+    return $nmax;
 }
 
 unlink "xi1.dat";
