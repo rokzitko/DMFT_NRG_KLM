@@ -31,6 +31,8 @@ rm -f broyden.log
 rm -f LL.dat ZT.dat condMIR.dat rhoMIR.dat cond.opt-PHI.dat ekin.dat kappa.dat thermopowerS.dat # transport
 # Band discretization
 rm -f FSOL.dat FSOLNEG.dat
+# Misc
+rm -f Z.dat
 # Alt lattice spectral funciton
 rm -f ldos.dat
 # Flag files, loop control
