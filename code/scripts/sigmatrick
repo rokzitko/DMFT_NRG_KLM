@@ -6,7 +6,11 @@
 
 use strict;
 use warnings;
+use File::Basename qw(dirname);
+use File::Spec;
+use List::Util qw(max);
 use Math::Complex;
+use POSIX qw(isfinite);
 
 my $result_dir = @ARGV ? shift @ARGV : (-d "res" ? "res" : ".");
 my $mesh_file = @ARGV ? shift @ARGV
@@ -15,48 +19,38 @@ my $mu_file = @ARGV ? shift @ARGV
     : ($result_dir eq "." && -s "param.mu.used" ? "param.mu.used" : "param.mu");
 my $customfdm_file = @ARGV ? shift @ARGV : "customfdm.avg";
 @ARGV and die "Usage: $0 [result_dir [mesh_file [mu_file [customfdm_file]]]]\n";
+my @output_temporaries;
+END { unlink(grep { defined($_) && (-e $_ || -l $_) } @output_temporaries); }
 
 # $imclip is the "infinitesimal" clipping value for Im(Sigma), to prevent causality violations
-chomp(my $imclip = `getparam clipSigma param.loop`);
-if ($imclip eq "") {
-    chomp($imclip = `getparam clip param.loop`); # fall back
-}
-$imclip ne "" or die;
-$imclip > 0.0 or die;
+my $imclip = parameter("clipSigma", "clip");
+$imclip > 0.0 or die "clipSigma must be positive\n";
 
 print "sigmatrick - imclip=$imclip\n";
 
--s $mesh_file or die;
-my @omega = readcol($mesh_file, 1);
-
-my @imG = readcol("$result_dir/c-imG.dat", 2);
-my @reG = readcol("$result_dir/c-reG.dat", 2);
-my @imF = readcol("$result_dir/c-imF.dat", 2);
-my @reF = readcol("$result_dir/c-reF.dat", 2);
-my @imI = readcol("$result_dir/c-imI.dat", 2);
-my @reI = readcol("$result_dir/c-reI.dat", 2);
-
-scalar(@omega) == scalar(@imG) or die "ImG mesh mismatch.";
-scalar(@omega) == scalar(@reG) or die "ReG mesh mismatch.";
-scalar(@omega) == scalar(@imF) or die "ImF mesh mismatch.";
-scalar(@omega) == scalar(@reF) or die "ReF mesh mismatch.";
-scalar(@omega) == scalar(@imI) or die "ImI mesh mismatch.";
-scalar(@omega) == scalar(@reI) or die "ReI mesh mismatch.";
+my ($omega, $omega_text) = read_mesh($mesh_file);
+my %spectra;
+for my $source (
+    [imG => "$result_dir/c-imG.dat"],
+    [reG => "$result_dir/c-reG.dat"],
+    [imF => "$result_dir/c-imF.dat"],
+    [reF => "$result_dir/c-reF.dat"],
+    [imI => "$result_dir/c-imI.dat"],
+    [reI => "$result_dir/c-reI.dat"],
+) {
+    my ($name, $file) = @$source;
+    my ($source_mesh, $values) = read_table($file);
+    require_same_mesh($omega, $source_mesh, $file);
+    $spectra{$name} = $values;
+}
 
 # Hartree shift
-open(my $sigmah_fh, "-|", "extractcolumn", $customfdm_file, "SigmaHd")
-    or die "Can't run extractcolumn: $!";
-my $SigmaH = <$sigmah_fh>;
-close($sigmah_fh) or die "extractcolumn failed: $?";
-defined $SigmaH or die "SigmaHd not found in $customfdm_file";
-chomp($SigmaH);
+my $SigmaH = command_number(
+    "SigmaHd in $customfdm_file", "extractcolumn", $customfdm_file, "SigmaHd",
+);
 
 # Chemical potential
-open(my $mu_fh, "<", $mu_file) or die "Can't open $mu_file for reading, stopped";
-my $mu = <$mu_fh>;
-close($mu_fh);
-defined $mu or die "Chemical potential not found in $mu_file";
-chomp($mu);
+my $mu = read_scalar($mu_file);
 print "mu=$mu\n";
 
 # ReDelta is the causal reconstruction of authoritative Gamma plus param.eps.
@@ -66,69 +60,200 @@ my $gamma_file = $result_dir eq "." && -s "Delta.used.dat"
     : (-s "$result_dir/Delta.used.dat" ? "$result_dir/Delta.used.dat" : "$result_dir/Delta.dat");
 my $redelta_file = $result_dir eq "." && -s "ReDelta.used.dat"
     ? "ReDelta.used.dat" : "$result_dir/ReDelta.dat";
-my @gamma = readcol($gamma_file, 2);
-my @imdelta = map { -$_ } @gamma;
-my @redelta = readcol($redelta_file, 2);
-
-scalar(@omega) == scalar(@gamma) or die "Delta mesh mismatch.";
-scalar(@omega) == scalar(@redelta) or die "ReDelta mesh mismatch.";
-
-my $selffn = "$result_dir/c-self.dat";
-open(SELF, ">$selffn") or die "Can't open $selffn for writing, stopped";
-
-my $imsigma = "$result_dir/imsigma.dat";
-open(IM, ">$imsigma") or die "Can't open $imsigma for writing, stopped";
-
-my $resigma = "$result_dir/resigma.dat";
-open(RE, ">$resigma") or die "Can't open $resigma for writing, stopped";
+my ($gamma_mesh, $gamma) = read_table($gamma_file);
+my ($redelta_mesh, $redelta) = read_table($redelta_file);
+require_same_mesh($omega, $gamma_mesh, $gamma_file);
+require_same_mesh($omega, $redelta_mesh, $redelta_file);
+for my $index (0 .. $#$gamma) {
+    $gamma->[$index] >= 0.0
+        or die "$gamma_file contains negative Gamma at row " . ($index + 1) . "\n";
+}
+my @imdelta = map { -$_ } @$gamma;
 
 my $pi = pi;
+# Finish validation and calculation before replacing any published output.
+my (@resigma, @imsigma, @self);
+for my $index (0 .. $#$omega) {
+    my $G = -$pi * (
+        $spectra{reG}->[$index] + i * $spectra{imG}->[$index]
+    );
+    my $g_magnitude = abs($G);
+    isfinite($g_magnitude) && $g_magnitude > 0.0
+        or die "G is zero or non-finite at row " . ($index + 1) . "\n";
+    my $F = -$pi * (
+        $spectra{reF}->[$index] + i * $spectra{imF}->[$index]
+    );
+    my $I = -$pi * (
+        $spectra{reI}->[$index] + i * $spectra{imI}->[$index]
+    );
 
-my $len = @omega;
-for (my $i = 0; $i < $len; $i++) {
-  my $o = $omega[$i];
-  my $G = $reG[$i] + i * $imG[$i];
-  $G = -$pi * $G; # this is now G, the local Green's function
-  my $F = $reF[$i] + i * $imF[$i];
-  $F = -$pi * $F; # this is now F, the auxiliary Green's function
-  my $I = $reI[$i] + i * $imI[$i];
-  $I = -$pi * $I; # this s now I, the 2nd auxiliary Green's function
+    my $sigma = $SigmaH + $I - $F / $G * $F;
+    my $re = Re($sigma);
+    my $im = Im($sigma);
+    isfinite($re) && isfinite($im)
+        or die "Self-energy is non-finite at row " . ($index + 1) . "\n";
+    $im = -$imclip if $im > -$imclip;
+    $im < 0.0 or die "Self-energy is not causal at row " . ($index + 1) . "\n";
 
-  my $sigma = $SigmaH + $I - $F/$G*$F;
-#  my $sigma = $F/$G;
+    my $sigma_clipped = $re + i * $im;
+    my $delta = $redelta->[$index] + i * $imdelta[$index];
+    my $denominator = $omega->[$index] + $mu - $delta - $sigma_clipped;
+    my $denominator_magnitude = abs($denominator);
+    isfinite($denominator_magnitude) && $denominator_magnitude > 0.0
+        or die "Dyson denominator is zero or non-finite at row " . ($index + 1) . "\n";
+    my $gf = 1.0 / $denominator;
+    my $aw = -1.0 / $pi * Im($gf);
+    isfinite($aw) && $aw > 0.0
+        or die "Reconstructed spectral function is invalid at row " . ($index + 1) . "\n";
 
-  my $re = Re($sigma);
-  my $im = Im($sigma);
-
-  if ($im > -$imclip) {
-      $im = -$imclip;
-  }
-  $im < 0.0 or die; # contract
-
-  print IM "$o $im\n";
-  print RE "$o $re\n";
-
-  my $sigma_clipped = $re + i * $im;
-  my $delta = $redelta[$i] + i * $imdelta[$i];
-
-  my $gf = 1.0/($o + $mu - $delta - $sigma_clipped);
-  my $aw = -1.0/pi * Im($gf);
-  $aw > 0.0 or die; # contract
-
-  print SELF "$o $aw\n";
-
+    push(@resigma, $re);
+    push(@imsigma, $im);
+    push(@self, $aw);
 }
 
-# Read a column from a file
-sub readcol {
-    my ($filename, $column) = @_;
-    my @l;
-    open(F, "<$filename") or die "Can't open $filename for reading, stopped";
-    while (<F>) {
-        chomp;
-        my $x = (split)[$column-1];
-        push(@l, $x);
+publish_tables(
+    $omega_text,
+    ["$result_dir/c-self.dat", \@self],
+    ["$result_dir/imsigma.dat", \@imsigma],
+    ["$result_dir/resigma.dat", \@resigma],
+);
+
+sub parameter {
+    my @names = @_;
+    for my $name (@names) {
+        open(my $fh, "-|", "getparam", $name, "param.loop")
+            or die "Can't run getparam for $name: $!\n";
+        local $/;
+        my $text = <$fh>;
+        my $success = close($fh);
+        next if !$success || !defined($text) || $text !~ /\S/;
+        return parse_number($text, "$name in param.loop");
     }
-    close(F);
-    @l
-};
+    die "None of the parameters were found: " . join(", ", @names) . "\n";
+}
+
+sub command_number {
+    my ($context, @command) = @_;
+    open(my $fh, "-|", @command) or die "Can't run $command[0]: $!\n";
+    local $/;
+    my $text = <$fh>;
+    close($fh) or die "$command[0] failed: $?\n";
+    defined($text) or die "$context was not found\n";
+    return parse_number($text, $context);
+}
+
+sub read_scalar {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!\n";
+    local $/;
+    my $text = <$fh>;
+    close($fh) or die "Can't close $file: $!\n";
+    return parse_number($text, $file);
+}
+
+sub parse_number {
+    my ($text, $context) = @_;
+    my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+    defined($text) && $text =~ /\A\s*($number)\s*\z/
+        or die "Invalid numeric value in $context\n";
+    my $value = 0.0 + $1;
+    isfinite($value) or die "Non-finite numeric value in $context\n";
+    return $value;
+}
+
+sub read_mesh {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!\n";
+    my (@mesh, @mesh_text);
+    my $line_number = 0;
+    while (<$fh>) {
+        ++$line_number;
+        next if /^\s*(?:#.*)?$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $file at line $line_number\n";
+        my $frequency = parse_number($fields[0], "$file at line $line_number");
+        @mesh && $frequency <= $mesh[-1]
+            and die "Frequency mesh is not strictly increasing in $file at line $line_number\n";
+        push(@mesh, $frequency);
+        push(@mesh_text, $fields[0]);
+    }
+    close($fh) or die "Can't close $file: $!\n";
+    @mesh or die "No data rows in $file\n";
+    return (\@mesh, \@mesh_text);
+}
+
+sub read_table {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't read $file: $!\n";
+    my (@mesh, @values, @mesh_text);
+    my $line_number = 0;
+    while (<$fh>) {
+        ++$line_number;
+        next if /^\s*(?:#.*)?$/;
+        my @fields = split;
+        @fields == 2 or die "Expected two columns in $file at line $line_number\n";
+        my $frequency = parse_number($fields[0], "$file at line $line_number");
+        my $value = parse_number($fields[1], "$file at line $line_number");
+        @mesh && $frequency <= $mesh[-1]
+            and die "Frequency mesh is not strictly increasing in $file at line $line_number\n";
+        push(@mesh, $frequency);
+        push(@values, $value);
+        push(@mesh_text, $fields[0]);
+    }
+    close($fh) or die "Can't close $file: $!\n";
+    @mesh or die "No data rows in $file\n";
+    return (\@mesh, \@values, \@mesh_text);
+}
+
+sub require_same_mesh {
+    my ($reference, $candidate, $context) = @_;
+    @$reference == @$candidate or die "$context mesh-size mismatch\n";
+    for my $index (0 .. $#$reference) {
+        my $scale = max(abs($reference->[$index]), abs($candidate->[$index]), 1.0);
+        abs($reference->[$index] - $candidate->[$index]) <= 1e-12 * $scale
+            or die "$context frequency mismatch at row " . ($index + 1) . "\n";
+    }
+}
+
+sub publish_tables {
+    my ($mesh, @outputs) = @_;
+    my (%targets, @publications);
+    for my $output (@outputs) {
+        my ($path, $values) = @$output;
+        @$mesh == @$values or die "Output length mismatch for $path\n";
+        my $target = output_target($path);
+        -d dirname($target) or die "Output directory does not exist for $path\n";
+        !-d $target or die "Output target is a directory: $path\n";
+        my $absolute = File::Spec->rel2abs($target);
+        $targets{$absolute}++ and die "Self-energy outputs must be distinct files\n";
+        my $temporary = "$target.tmp.$$";
+        unlink($temporary);
+        push(@output_temporaries, $temporary);
+        push(@publications, [$temporary, $target, $values]);
+    }
+
+    write_table($_->[0], $mesh, $_->[2]) for @publications;
+    for my $publication (@publications) {
+        my ($temporary, $target) = @$publication;
+        rename($temporary, $target) or die "Can't replace $target: $!\n";
+    }
+}
+
+sub output_target {
+    my ($path) = @_;
+    return $path unless -l $path;
+    my $target = readlink($path);
+    defined($target) or die "Can't read output symlink $path: $!\n";
+    return $target if File::Spec->file_name_is_absolute($target);
+    return File::Spec->catfile(dirname($path), $target);
+}
+
+sub write_table {
+    my ($file, $mesh, $values) = @_;
+    open(my $fh, ">", $file) or die "Can't write $file: $!\n";
+    for my $index (0 .. $#$mesh) {
+        print {$fh} "$mesh->[$index] $values->[$index]\n"
+            or die "Can't write $file: $!\n";
+    }
+    close($fh) or die "Can't close $file: $!\n";
+}

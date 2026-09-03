@@ -10,6 +10,7 @@ use Test::More;
 
 my $scripts = "$FindBin::Bin/../scripts";
 my $original = getcwd();
+my $original_path = $ENV{PATH};
 
 sub write_file {
     my ($path, $contents) = @_;
@@ -38,6 +39,8 @@ subtest "next-input alias migration" => sub {
 subtest "initialization treats Gamma as authoritative" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
+    install_numerical_stubs($dir);
+    local $ENV{PATH} = "$dir/bin:$original_path";
     write_file(
         "param.loop",
         "clipDelta=0.1\nbroaden_max=2\nbroaden_ratio=2\nbroaden_min=0.5\n",
@@ -73,6 +76,8 @@ subtest "launcher migrates an Im-only legacy result" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     make_path("res", "scripts");
+    install_numerical_stubs($dir);
+    local $ENV{PATH} = "$dir/bin:$original_path";
     symlink("$scripts/migrate_legacy_res", "scripts/migrate_legacy_res") or die $!;
     symlink("$scripts/causalDelta", "scripts/causalDelta") or die $!;
     my $negative = "-2 -0.2\n-1 -0.2\n1 -0.2\n2 -0.2\n";
@@ -110,6 +115,8 @@ subtest "launcher migrates an Im-only legacy result" => sub {
 subtest "interrupted remeshing publication" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
+    install_numerical_stubs($dir);
+    local $ENV{PATH} = "$dir/bin:$original_path";
     my $gamma = "-2 0\n-1 0.3\n1 0.3\n2 0\n";
     my $re = "-2 9\n-1 9\n1 9\n2 9\n";
     my $im = "-2 -8\n-1 -8\n1 -8\n2 -8\n";
@@ -170,6 +177,7 @@ subtest "Broyden mixes Gamma with optional mu" => sub {
         "*) exit 1;;\nesac\n",
     );
     chmod(0755, "bin/getparam");
+    write_kk_stub("bin/kk");
     local $ENV{PATH} = "$dir/bin:$ENV{PATH}";
 
     is(system(
@@ -363,6 +371,7 @@ subtest "accurate occupancy is staged before convergence and reuses H0" => sub {
         "#!/usr/bin/env perl\nopen(my \$fh, '<', \$ARGV[1]) or die \$!; print while <\$fh>;\n",
     );
     write_file("bin/delete_NRG_output", "#!/bin/sh\nexit 0\n");
+    write_kk_stub("bin/kk");
     chmod(0755, glob("bin/*"), glob("scripts/*"));
 
     local $ENV{PATH} = "$dir/bin:$ENV{PATH}";
@@ -401,15 +410,10 @@ subtest "ready publication and cleanup" => sub {
         "grep -q '^n_old=0.8\$' OCCUPANCY_METRICS || exit 93\n" .
         "printf '%s\\n' published >post.seen\n",
     );
-    write_file(
-        "bin/getparam",
-        "#!/bin/sh\ncase \"\$1\" in\n" .
-        "track) printf false;;\n" .
-        "clipDelta) printf 0.1;;\n" .
-        "*) exit 1;;\nesac\n",
-    );
     write_file("bin/delete_NRG_output", "#!/bin/sh\nexit 0\n");
-    chmod(0755, "scripts/DMFT", "scripts/post", "bin/getparam", "bin/delete_NRG_output");
+    write_getparam_stub("bin/getparam");
+    write_kk_stub("bin/kk");
+    chmod(0755, "scripts/DMFT", "scripts/post", glob("bin/*"));
     local $ENV{PATH} = "$dir/bin:$ENV{PATH}";
 
     my $negative = "-2 0\n-1 -0.2\n1 -0.2\n2 0\n";
@@ -435,7 +439,7 @@ subtest "ready publication and cleanup" => sub {
     write_file("res/DECISION", "converged\n");
     write_file("res/READY", "source_iter=0\ntarget_iter=1\ndecision=converged\n");
 
-    write_file("res/ReDelta.next.dat", $mesh);
+    write_file("res/ReDelta.next.dat", "-2 9\n-1 9\n1 9\n2 9\n");
     isnt(system($^X, "$scripts/dmft_done", "--publish"), 0,
          "ready replay rejects a stale independent ReDelta");
     ok(-d "res", "rejected ready transaction remains available for repair");
@@ -520,4 +524,69 @@ sub write_causal_stage_triplet {
         "res/Delta.$kind.dat", "res/ReDelta.$kind.dat", "res/ImDelta.$kind.dat",
     ) == 0 or die "Failed to create causal $kind staging fixture: $?";
     unlink($raw) or die "Can't remove $raw: $!";
+}
+
+sub install_numerical_stubs {
+    my ($directory) = @_;
+    make_path("$directory/bin");
+    write_getparam_stub("$directory/bin/getparam");
+    write_kk_stub("$directory/bin/kk");
+    write_file("$directory/bin/mesh_union", <<'MESH_UNION');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+my $source = $ARGV[-1];
+open(my $fh, "<", $source) or die $!;
+print while <$fh>;
+close($fh) or die $!;
+MESH_UNION
+    write_file("$directory/bin/resample", <<'RESAMPLE');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use File::Copy qw(copy);
+copy($ARGV[-3], $ARGV[-1]) or die $!;
+RESAMPLE
+    chmod(0755, glob("$directory/bin/*"));
+}
+
+sub write_getparam_stub {
+    my ($path) = @_;
+    write_file($path, <<'GETPARAM');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+my ($name, $file) = @ARGV;
+defined($name) && defined($file) or exit 1;
+open(my $fh, "<", $file) or exit 1;
+while (<$fh>) {
+    if (/^\s*\Q$name\E\s*=\s*(.*?)\s*$/) {
+        print "$1\n";
+        exit 0;
+    }
+}
+exit 1;
+GETPARAM
+    chmod(0755, $path);
+}
+
+sub write_kk_stub {
+    my ($path) = @_;
+    write_file($path, <<'KK');
+#!/usr/bin/env perl
+use strict;
+use warnings;
+my ($input, $output) = @ARGV[-2, -1];
+open(my $in, "<", $input) or die $!;
+open(my $out, ">", $output) or die $!;
+while (<$in>) {
+    next if /^\s*(?:#.*)?$/;
+    my ($omega) = split;
+    defined($omega) or die "invalid input\n";
+    print {$out} "$omega 0\n";
+}
+close($in) or die $!;
+close($out) or die $!;
+KK
+    chmod(0755, $path);
 }

@@ -13,10 +13,14 @@ my $code = "$FindBin::Bin/..";
 my $scripts = "$code/scripts";
 my $original = getcwd();
 my $original_path = $ENV{PATH};
+my $external_mode = $ENV{DMFT_TEST_EXTERNAL} // "auto";
+$external_mode =~ /\A(?:0|1|auto)\z/
+    or die "DMFT_TEST_EXTERNAL must be 0, 1, or auto\n";
 
 require "$scripts/Bubble.pm";
 
 subtest "Bethe tables use one normalized edge-refined mesh" => sub {
+    require_external_tools("hilb") or return;
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
 
@@ -95,6 +99,7 @@ subtest "mkDOS reports warnings and preserves output on failure" => sub {
 };
 
 subtest "Broyden remeshing matches the Steffen tool" => sub {
+    require_external_tools("resample") or return;
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     write_file("source.dat", "0 0\n1 1\n2 1.5\n4 1.4\n");
@@ -130,6 +135,7 @@ PYTHON
 };
 
 subtest "causal Delta is projected and reconstructed from Gamma" => sub {
+    require_external_tools(qw(getparam kk)) or return;
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     write_file("param.loop", "clipDelta=0.1\n");
@@ -571,6 +577,7 @@ subtest "warning-mode convergence estimates continue" => sub {
 };
 
 subtest "Delta support check removes only the represented floor" => sub {
+    require_external_tools(qw(getparam integ)) or return;
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     write_file("param.loop", "bandrescale=0.5\nclipDelta=0.1\n");
@@ -586,6 +593,7 @@ subtest "Delta support check removes only the represented floor" => sub {
 };
 
 subtest "KK and optical sum-rule utilities use configured Steffen tools" => sub {
+    require_external_tools(qw(kk integ)) or return;
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     make_path("spectra");
@@ -657,6 +665,7 @@ subtest "asymmetric first-moment publication stops on subprocess failure" => sub
 };
 
 subtest "directory comparison uses the Steffen convergence norm" => sub {
+    require_external_tools(qw(resample subtracty integ subtract)) or return;
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
     make_path("reference");
@@ -674,8 +683,7 @@ subtest "directory comparison uses the Steffen convergence norm" => sub {
 };
 
 subtest "installed Hilbert and Bubble backends complete warning-mode profiles" => sub {
-    plan skip_all => "hilb is not installed" unless executable_available("hilb");
-    plan skip_all => "bubble is not installed" unless executable_available("bubble");
+    require_external_tools(qw(getparam hilb kk bubble)) or return;
 
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;
@@ -805,6 +813,22 @@ sub executable_available {
     for my $directory (split(/:/, $ENV{PATH})) {
         return 1 if -x "$directory/$name";
     }
+    return 0;
+}
+
+sub require_external_tools {
+    my @tools = @_;
+    if ($external_mode eq "0") {
+        plan skip_all => "external numerical tools disabled by DMFT_TEST_EXTERNAL=0";
+        return 0;
+    }
+
+    my @missing = grep { !executable_available($_) } @tools;
+    return 1 if !@missing;
+
+    my $message = "missing external numerical tools: " . join(", ", @missing);
+    die "$message\n" if $external_mode eq "1";
+    plan skip_all => $message;
     return 0;
 }
 

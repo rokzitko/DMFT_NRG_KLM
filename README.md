@@ -31,6 +31,27 @@ Two modes of operation:
   the environment (number of threads, working directory, piping of output to files); an example is provided
 - slurm: a script named "subslurm" must exist to create a job script and submit it to the cluster for execution
 
+# Testing
+
+The fast test suite uses deterministic stubs for external numerical programs and
+does not run NRG. It requires Python with NumPy and SciPy:
+
+```sh
+DMFT_TEST_EXTERNAL=0 PYTHONDONTWRITEBYTECODE=1 prove -v code/tests/*.t
+```
+
+The numerical integration tests exercise the installed NRG Ljubljana and Bubble
+tools. Setting `DMFT_TEST_EXTERNAL=1` makes a missing required executable a test
+failure instead of a skip:
+
+```sh
+DMFT_TEST_EXTERNAL=1 PYTHONDONTWRITEBYTECODE=1 prove -v code/tests/numerics.t
+```
+
+If `DMFT_TEST_EXTERNAL` is omitted, each external-tool subtest runs when all of
+its required executables are available and otherwise skips. Full DMFT/NRG
+calculations are intentionally outside the fast suite.
+
 Rok Zitko, 2026
 
 # Reference calculation
