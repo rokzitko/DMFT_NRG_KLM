@@ -107,7 +107,8 @@ subtest "mkDOS reports warnings and preserves output on failure" => sub {
     write_file(
         "bin/hilb",
         "#!/bin/sh\n" .
-        "printf '%s\\n' 'algorithm=analytic-piecewise-polynomial' " .
+        "printf '%s\\n' \"\$@\" >hilb.args\n" .
+        "printf '%s\\n' 'algorithm=analytic' " .
         "'dos.integral=1' 'WARNING - qag error: 18 -- roundoff error' >&2\n",
     );
     chmod(0755, "bin/hilb");
@@ -119,6 +120,8 @@ subtest "mkDOS reports warnings and preserves output on failure" => sub {
     is($status, 0, "mkDOS accepts a finite warning-mode normalization");
     like(read_file("mkdos.stderr"), qr/WARNING - qag error: 18/,
          "successful hilb warning remains visible");
+    like(read_file("hilb.args"), qr/(?:^|\n)--algorithm\nanalytic(?:\n|$)/,
+         "mkDOS explicitly selects the analytic backend");
     is(scalar(read_table("DOS.dat")), 2601, "warning-mode DOS is published");
 };
 
@@ -730,6 +733,8 @@ subtest "installed Hilbert and Bubble backends complete warning-mode profiles" =
     is(system($^X, "$scripts/dmftDOS-stable", ".", "param.mu",
               "Delta.raw.dat"), 0,
        "real H0/H1 transforms produce a raw Gamma update");
+    my $raw_gamma = read_file("Delta.raw.dat");
+    write_file("Delta.raw.dat", "-40 0\n${raw_gamma}40 0\n");
     is(system($^X, "$scripts/causalDelta", "Delta.raw.dat", "Delta.dat",
               "ReDelta.dat", "ImDelta.dat"), 0,
        "raw Gamma is projected into a causal hybridization");
@@ -737,8 +742,8 @@ subtest "installed Hilbert and Bubble backends complete warning-mode profiles" =
     my @gamma = read_table("Delta.dat");
     my @hybridization = read_table("ImDelta.dat");
     is(scalar(@spectrum), 400, "Hilbert output preserves the self-energy mesh");
-    is(scalar(@hybridization), 400,
-       "stable hybridization preserves the self-energy mesh");
+    is(scalar(@hybridization), 402,
+       "stable hybridization retains the explicit support guards");
     ok(!grep({ $_->[1] < 0 } @spectrum), "lattice spectrum is nonnegative");
     is($gamma[0][1], 0, "lower Gamma support guard is zero");
     is($gamma[-1][1], 0, "upper Gamma support guard is zero");

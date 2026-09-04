@@ -19,7 +19,7 @@ INTEGRAL_PATTERN = re.compile(
     r"(?m)^\s*dos\.integral="
     r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$"
 )
-EXPECTED_ALGORITHM = "algorithm=analytic-piecewise-polynomial"
+EXPECTED_ALGORITHM = "algorithm=analytic"
 WARNING_PATTERN = re.compile(r"\bwarning\b", re.IGNORECASE)
 
 
@@ -37,6 +37,8 @@ def hilb_normalization(path):
         "-v",
         "-i",
         INTERPOLATION,
+        "--algorithm",
+        "analytic",
         "--gsl-error-policy",
         "warn",
         "-d",
