@@ -1,3 +1,5 @@
+[![CI](https://github.com/rokzitko/DMFT_NRG_KLM/actions/workflows/ci.yml/badge.svg)](https://github.com/rokzitko/DMFT_NRG_KLM/actions/workflows/ci.yml)
+
 Example code for dynamical mean-field theory (DMFT) calculation using the [NRG
 Ljubljana](https://github.com/rokzitko/nrgljubljana) code as
 the impurity solver
