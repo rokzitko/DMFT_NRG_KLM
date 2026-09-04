@@ -66,6 +66,30 @@ subtest "Bethe tables use one normalized edge-refined mesh" => sub {
            "Phi equals (1-epsilon^2) DOS at every knot");
 };
 
+subtest "asymmetric tables reproduce their validated Steffen inputs" => sub {
+    require_external_tools("integ") or return;
+    my $dir = tempdir(CLEANUP => 1);
+    chdir($dir) or die $!;
+    my $asym = "$code/../more_examples/asym";
+
+    is(system(
+        "$scripts/validate_bare_inputs", "--dos", "$asym/DOS.dat",
+        "--eps", "$asym/param.eps", "--phi", "$dir/absent-PHI.dat",
+    ), 0, "checked-in asymmetric inputs satisfy the runtime validator");
+    is(system("$asym/mkDOS"), 0, "asymmetric DOS generator succeeds");
+    is(system("$asym/mkparameps"), 0, "represented centroid generator succeeds");
+    is(system("$scripts/validate_bare_inputs"), 0,
+       "generated asymmetric inputs satisfy the runtime validator");
+    my @dos = read_table("DOS.dat");
+    is(scalar(@dos), 2601,
+       "asymmetric table retains the edge-refined mesh size");
+    cmp_ok(abs((0.0 + read_file("param.eps")) - 0.175), "<", 1e-8,
+           "represented centroid remains near the analytic value");
+    cmp_ok($dos[301][0] - $dos[300][0], "<",
+           $dos[1301][0] - $dos[1300][0],
+           "asymmetric mesh is refined at the lower band edge");
+};
+
 subtest "mkDOS reports warnings and preserves output on failure" => sub {
     my $dir = tempdir(CLEANUP => 1);
     chdir($dir) or die $!;

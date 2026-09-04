@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""Validate the tabulated bare DOS, its centroid, and optional transport mesh."""
+
+import argparse
+import math
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+NUMBER = re.compile(
+    r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+)
+NORMALIZATION_TOLERANCE = 1e-8
+MOMENT_TOLERANCE = 1e-10
+MESH_RELATIVE_TOLERANCE = 1e-12
+MESH_ABSOLUTE_TOLERANCE = 1e-14
+
+
+class ValidationError(RuntimeError):
+    pass
+
+
+def parse_number(text, context):
+    if NUMBER.fullmatch(text) is None:
+        raise ValidationError(f"invalid numeric value in {context}: {text!r}")
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValidationError(f"non-finite numeric value in {context}: {text!r}")
+    mantissa = text.lower().split("e", 1)[0]
+    if value == 0.0 and any(digit in mantissa for digit in "123456789"):
+        raise ValidationError(f"numeric underflow in {context}: {text!r}")
+    return value
+
+
+def read_table(path, label):
+    try:
+        lines = path.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ValidationError(f"unable to read {path}: {exc}") from exc
+
+    rows = []
+    for line_number, line in enumerate(lines, 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        fields = line.split()
+        if len(fields) != 2:
+            raise ValidationError(
+                f"expected two columns in {path} at line {line_number}"
+            )
+        epsilon = parse_number(fields[0], f"{path} at line {line_number}")
+        value = parse_number(fields[1], f"{path} at line {line_number}")
+        if rows and epsilon <= rows[-1][0]:
+            raise ValidationError(
+                f"mesh is not strictly increasing in {path} at line {line_number}"
+            )
+        if value < 0.0:
+            raise ValidationError(
+                f"negative {label} value in {path} at line {line_number}"
+            )
+        rows.append((epsilon, value))
+
+    if len(rows) < 3:
+        raise ValidationError(f"{path} must contain at least three rows")
+    if not any(value > 0.0 for _, value in rows):
+        raise ValidationError(f"{path} must contain a positive {label} value")
+    return rows
+
+
+def read_scalar(path):
+    try:
+        fields = path.read_text(encoding="ascii").split()
+    except (OSError, UnicodeError) as exc:
+        raise ValidationError(f"unable to read {path}: {exc}") from exc
+    if len(fields) != 1:
+        raise ValidationError(f"{path} must contain exactly one numeric value")
+    return parse_number(fields[0], path)
+
+
+def represented_integral(path, quantity):
+    command = [
+        "integ",
+        "--interpolation",
+        "steffen",
+        quantity,
+        "--",
+        str(path),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise ValidationError(f"unable to run integ: {exc}") from exc
+    if result.stderr:
+        print(result.stderr, file=sys.stderr, end="")
+    if result.returncode != 0:
+        detail = result.stdout.strip() or f"exit status {result.returncode}"
+        raise ValidationError(f"integ failed for {path}: {detail}")
+    fields = result.stdout.split()
+    if len(fields) != 1:
+        raise ValidationError(f"integ returned an invalid result for {path}")
+    return parse_number(fields[0], f"integ result for {path}")
+
+
+def require_matching_mesh(dos_rows, phi_rows, dos_path, phi_path):
+    if len(phi_rows) != len(dos_rows):
+        raise ValidationError(
+            f"mesh length mismatch: {phi_path} has {len(phi_rows)} rows, "
+            f"{dos_path} has {len(dos_rows)}"
+        )
+    for index, ((dos_epsilon, _), (phi_epsilon, _)) in enumerate(
+        zip(dos_rows, phi_rows), 1
+    ):
+        tolerance = MESH_ABSOLUTE_TOLERANCE + MESH_RELATIVE_TOLERANCE * max(
+            abs(dos_epsilon), abs(phi_epsilon)
+        )
+        if abs(dos_epsilon - phi_epsilon) > tolerance:
+            raise ValidationError(
+                f"frequency mesh mismatch in {phi_path} at row {index}"
+            )
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dos", type=Path, default=Path("DOS.dat"))
+    parser.add_argument("--eps", type=Path, default=Path("param.eps"))
+    parser.add_argument("--phi", type=Path, default=Path("PHI.dat"))
+    parser.add_argument(
+        "--require-phi",
+        action="store_true",
+        help="fail when the transport table is absent",
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_arguments()
+    dos_rows = read_table(args.dos, "DOS")
+    eps = read_scalar(args.eps)
+    normalization = represented_integral(args.dos, "--total")
+    first_moment = represented_integral(args.dos, "--energy-moment")
+
+    if normalization <= 0.0:
+        raise ValidationError(
+            f"represented DOS normalization must be positive: {normalization:.17g}"
+        )
+    normalization_error = abs(normalization - 1.0)
+    if normalization_error > NORMALIZATION_TOLERANCE:
+        raise ValidationError(
+            "represented DOS normalization is not one: "
+            f"integral={normalization:.17g}, error={normalization_error:.3g}, "
+            f"tolerance={NORMALIZATION_TOLERANCE:.3g}"
+        )
+
+    centroid = first_moment / normalization
+    support_scale = max(
+        1.0,
+        abs(dos_rows[0][0]),
+        abs(dos_rows[-1][0]),
+        abs(centroid),
+        abs(eps),
+    )
+    moment_error = abs(eps - centroid)
+    moment_tolerance = MOMENT_TOLERANCE * support_scale
+    if moment_error > moment_tolerance:
+        raise ValidationError(
+            "param.eps does not match the normalized DOS first moment: "
+            f"param.eps={eps:.17g}, centroid={centroid:.17g}, "
+            f"error={moment_error:.3g}, tolerance={moment_tolerance:.3g}"
+        )
+
+    phi_exists = args.phi.exists() or args.phi.is_symlink()
+    if phi_exists and not args.phi.is_file():
+        raise ValidationError(f"transport table {args.phi} is not a regular file")
+    phi_present = args.phi.is_file()
+    if args.require_phi and not phi_present:
+        raise ValidationError(f"required transport table {args.phi} is missing")
+    if phi_present:
+        phi_rows = read_table(args.phi, "PHI")
+        require_matching_mesh(dos_rows, phi_rows, args.dos, args.phi)
+        phi_integral = represented_integral(args.phi, "--total")
+        if phi_integral <= 0.0:
+            raise ValidationError(
+                f"represented PHI integral must be positive: {phi_integral:.17g}"
+            )
+        phi_summary = f", PHI integral={phi_integral:.17g}"
+    else:
+        phi_summary = ", PHI absent"
+
+    print(
+        f"Bare inputs valid: DOS integral={normalization:.17g}, "
+        f"centroid={centroid:.17g}, param.eps={eps:.17g}{phi_summary}"
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except ValidationError as exc:
+        print(f"validate_bare_inputs: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc

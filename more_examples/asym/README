@@ -1,4 +1,11 @@
-Note that for this choice of DOS, <n> ~ 0.8 for DOS.dat
+`mkDOS` generates an edge-refined asymmetric table and normalizes its represented
+Steffen interpolant. Run `mkparameps` next to derive the matching normalized
+first moment in `param.eps`. The continuum centroid is `0.175`; the checked-in
+value includes only the roundoff of the represented table. This example does
+not provide a transport function, so a matching `PHI.dat` is required before
+running transport postprocessing.
+
+For this choice of DOS, `<n> ~ 0.8` for `DOS.dat`.
 
 `mkparameps-bubble` uses Bubble 1.14 with explicit Steffen interpolation,
 visible quadrature warnings, best-effort finite results, and atomic output

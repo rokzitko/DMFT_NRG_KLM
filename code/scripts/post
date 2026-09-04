@@ -4,6 +4,10 @@
 use strict;
 use warnings;
 
+my @validation = ("scripts/validate_bare_inputs");
+push(@validation, "--require-phi") if -x "scripts/cond.opt-PHI";
+system(@validation) == 0 or die "Bare-input validation failed: $?";
+
 $ENV{DMFT_MU_FILE} = "param.mu.used"
     if (!defined($ENV{DMFT_MU_FILE}) || $ENV{DMFT_MU_FILE} eq "")
     && -s "param.mu.used";

@@ -1,9 +1,21 @@
 #!/bin/bash
+set -euo pipefail
+
 # Ensure that param.eps contains the band energy (average energy of DOS.dat)
 # This information about the shift needs to be supplied to the NRG separately,
 # because Gamma=-ImDelta determines only the dynamic part. The causal real part
 # is defined as kk[ImDelta]+param.eps. For a normalized DOS, this constant is the
-# first moment obtained with integrateeps.
+# normalized first moment of the represented Steffen table.
 # Rok Zitko, rok.zitko@ijs.si, Aug 2026
 
-integrateeps DOS.dat >param.eps
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+temporary=$(mktemp .param.eps.XXXXXXXXXX)
+trap 'rm -f -- "$temporary"' EXIT
+"$script_dir/integrateeps" DOS.dat >"$temporary"
+if [[ -e param.eps ]]; then
+  chmod --reference=param.eps "$temporary"
+else
+  chmod 0644 "$temporary"
+fi
+mv -- "$temporary" param.eps
+trap - EXIT

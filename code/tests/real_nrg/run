@@ -1,0 +1,75 @@
+#!/bin/bash
+set -euo pipefail
+
+fixture_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH= cd -- "$fixture_dir/../../.." && pwd)
+
+required_tools=(
+  nrg adapt nrgchain broaden hilb kk integ resample matrix diag unitary
+  getparam gatherlastlines columnavg_comment extractcolumn integratenegabs
+  mixy optimize_mesh mesh_union subtracty delete_NRG_output
+)
+for tool in "${required_tools[@]}"; do
+  command -v "$tool" >/dev/null || {
+    printf 'Required real-NRG tool is missing: %s\n' "$tool" >&2
+    exit 1
+  }
+done
+
+code_root=$(CDPATH= cd -- "$repo_root/code" && pwd -P)
+reject_source_workdir() {
+  local candidate=$1
+  if [[ $candidate == "$code_root" || $candidate == "$code_root/"* ]]; then
+    printf 'Real-NRG work paths must be outside %s: %s\n' \
+      "$code_root" "$candidate" >&2
+    exit 1
+  fi
+}
+
+if [[ -n ${DMFT_REAL_NRG_WORKDIR:-} ]]; then
+  workdir=$(python3 -c \
+    'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' \
+    "$DMFT_REAL_NRG_WORKDIR")
+  reject_source_workdir "$workdir"
+  mkdir -p -- "$workdir"
+  shopt -s dotglob nullglob
+  entries=("$workdir"/*)
+  shopt -u dotglob nullglob
+  if (( ${#entries[@]} != 0 )); then
+    printf 'DMFT_REAL_NRG_WORKDIR must be empty: %s\n' "$workdir" >&2
+    exit 1
+  fi
+else
+  temp_root=$(python3 -c \
+    'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' \
+    "${TMPDIR:-/tmp}")
+  reject_source_workdir "$temp_root"
+  workdir=$(mktemp -d "$temp_root/dmft-real-nrg.XXXXXXXXXX")
+fi
+workdir=$(CDPATH= cd -- "$workdir" && pwd -P)
+reject_source_workdir "$workdir"
+
+cp -a "$repo_root/code/." "$workdir/"
+cp "$fixture_dir/param.loop" "$workdir/param.loop"
+printf '0\n' >"$workdir/param.eps"
+printf '0\n' >"$workdir/param.mu"
+python3 "$fixture_dir/make_seed.py" \
+  "$workdir/Delta.next.dat" "$workdir/mesh.next.dat"
+
+export PATH="$fixture_dir:$PATH"
+export DMFT_NRG_CALL_LOG="$workdir/nrg.calls"
+export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-2}
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+export MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+export OMP_DYNAMIC=FALSE
+export MKL_DYNAMIC=FALSE
+
+(
+  cd "$workdir"
+  set -o pipefail
+  timeout --signal=TERM --kill-after=120s \
+    "${DMFT_REAL_NRG_TIMEOUT:-75m}" ./START 2>&1 | tee nightly.log
+)
+
+python3 "$fixture_dir/check_result.py" "$workdir"
+printf 'Real-NRG work directory: %s\n' "$workdir"

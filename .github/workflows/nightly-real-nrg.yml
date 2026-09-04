@@ -1,0 +1,133 @@
+name: Nightly real NRG
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-real-nrg-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NRG_SHA: 4940daa32017ad4a315c42ff222e3c55b55c8214
+  NRG_PREFIX: ${{ github.workspace }}/.nrg-install
+  NRG_SOURCE: ${{ runner.temp }}/nrgljubljana-source
+  NRG_BUILD: ${{ runner.temp }}/nrgljubljana-build
+
+jobs:
+  real-nrg:
+    name: Reduced two-cycle DMFT
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates cmake coreutils gcc-14 g++-14 git m4 ninja-build perl pkg-config \
+            libboost-dev libboost-mpi-dev libboost-serialization-dev libeigen3-dev \
+            libgmp-dev libgsl-dev libhdf5-dev libopenblas-dev libopenmpi-dev openmpi-bin
+          python -m pip install "numpy==2.3.1" "scipy==1.16.0"
+
+      - name: Check out pinned NRG Ljubljana source
+        run: |
+          git init "$NRG_SOURCE"
+          git -C "$NRG_SOURCE" remote add origin https://github.com/rokzitko/nrgljubljana.git
+          git -C "$NRG_SOURCE" fetch --depth=1 origin "$NRG_SHA"
+          git -C "$NRG_SOURCE" checkout --detach FETCH_HEAD
+          test "$(git -C "$NRG_SOURCE" rev-parse HEAD)" = "$NRG_SHA"
+
+      - id: nrg-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ env.NRG_PREFIX }}
+          key: nrgljubljana-${{ runner.os }}-${{ runner.arch }}-gcc14-openblas-lp64-basic-4940daa32017ad4a315c42ff222e3c55b55c8214-v1
+
+      - name: Configure and build NRG Ljubljana
+        if: steps.nrg-cache.outputs.cache-hit != 'true'
+        run: |
+          cmake -S "$NRG_SOURCE" -B "$NRG_BUILD" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_INSTALL_PREFIX="$NRG_PREFIX" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DBLA_VENDOR=OpenBLAS \
+            -DBuild_Tests=OFF \
+            -DBuild_Documentation=OFF \
+            -DNRGLJUBLJANA_ENABLE_MATHEMATICA=OFF \
+            -DNRGLJUBLJANA_INSTALL_NRGINIT=OFF \
+            -DNRGLJUBLJANA_ENABLE_APP_OPENMP=OFF \
+            -DNRGLJUBLJANA_ENABLE_CUDA=OFF \
+            -DNRGLJUBLJANA_BLAS_ILP64=OFF \
+            -DNRGLJUBLJANA_USE_SYSTEM_DEPS=OFF \
+            -DSYM_MORE=OFF \
+            -DSYM_ALL=OFF
+          cmake --build "$NRG_BUILD" --parallel 2
+          cmake --install "$NRG_BUILD"
+
+      - name: Expose and verify the pinned toolchain
+        run: |
+          export LD_LIBRARY_PATH="$NRG_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          printf '%s\n' "$NRG_PREFIX/bin" "$NRG_SOURCE/scripts" >>"$GITHUB_PATH"
+          printf 'NRGLJUBLJANA_ROOT=%s\n' "$NRG_PREFIX" >>"$GITHUB_ENV"
+          printf 'LD_LIBRARY_PATH=%s\n' "$LD_LIBRARY_PATH" >>"$GITHUB_ENV"
+          module_sha=$(perl -ne 'print "$1\n" if /^\s*set\s+git_hash\s+(\S+)/' \
+            "$NRG_PREFIX/share/nrgljubljana.modulefile")
+          test "$module_sha" = "$NRG_SHA"
+          for tool in nrg adapt nrgchain broaden hilb kk integ resample matrix diag unitary; do
+            test "$("$NRG_PREFIX/bin/$tool" --version)" = "$tool 2026.09"
+          done
+          for tool in getparam gatherlastlines columnavg_comment extractcolumn \
+            integratenegabs mixy optimize_mesh mesh_union subtracty delete_NRG_output; do
+            test -x "$NRG_SOURCE/scripts/$tool"
+          done
+          test -f "$NRG_SOURCE/scripts/TableIO.pm"
+
+      - name: Validate the asymmetric DOS example
+        run: |
+          (
+            cd more_examples/asym
+            ../../code/scripts/validate_bare_inputs
+          )
+          generated=$(mktemp -d "$RUNNER_TEMP/asymmetric-DOS.XXXXXXXXXX")
+          (
+            cd "$generated"
+            "$GITHUB_WORKSPACE/more_examples/asym/mkDOS"
+            "$GITHUB_WORKSPACE/more_examples/asym/mkparameps"
+            "$GITHUB_WORKSPACE/code/scripts/validate_bare_inputs"
+          )
+
+      - name: Run two real-NRG DMFT cycles
+        env:
+          DMFT_REAL_NRG_WORKDIR: ${{ runner.temp }}/dmft-real-nrg
+          OPENBLAS_NUM_THREADS: "2"
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: code/tests/real_nrg/run
+
+      - uses: actions/cache/save@v5
+        if: steps.nrg-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.NRG_PREFIX }}
+          key: nrgljubljana-${{ runner.os }}-${{ runner.arch }}-gcc14-openblas-lp64-basic-4940daa32017ad4a315c42ff222e3c55b55c8214-v1
+
+      - name: Upload nightly diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: real-nrg-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dmft-real-nrg
+          if-no-files-found: ignore
+          retention-days: 7

@@ -50,7 +50,14 @@ DMFT_TEST_EXTERNAL=1 PYTHONDONTWRITEBYTECODE=1 prove -v code/tests/numerics.t
 
 If `DMFT_TEST_EXTERNAL` is omitted, each external-tool subtest runs when all of
 its required executables are available and otherwise skips. Full DMFT/NRG
-calculations are intentionally outside the fast suite.
+calculations are intentionally outside the fast suite. A reduced particle-hole
+symmetric calculation with two z shifts and exactly two DMFT cycles runs nightly
+and on manual dispatch through `.github/workflows/nightly-real-nrg.yml`. With a
+local NRG Ljubljana installation, invoke the same fixture directly:
+
+```sh
+code/tests/real_nrg/run
+```
 
 Rok Zitko, 2026
 
@@ -554,6 +561,20 @@ points are retained on each side out to `+-1.3`.
 analytic integral reported by `hilb` and publishes only after that result has
 been verified. `mkPHI` reads the normalized `DOS.dat` and evaluates
 `Phi=(1-epsilon^2)rho_0` on exactly the same knots.
+
+`START` validates bare tables before every cycle with
+`scripts/validate_bare_inputs`. The validator uses `integ` with Steffen
+interpolation, requires the represented `DOS.dat` weight to equal one within
+`1e-8`, and requires `param.eps` to equal its normalized first moment within
+`1e-10` times the band-energy scale. If `PHI.dat` is present, it must be a
+finite, nonnegative table on the same mesh and have positive represented
+weight. Blank and whole-line `#` comments are permitted. Core DMFT permits an
+absent `PHI.dat`; transport postprocessing requires it. The same check can be
+run directly before starting a calculation:
+
+```sh
+scripts/validate_bare_inputs
+```
 
 ## Bethe transport function
 

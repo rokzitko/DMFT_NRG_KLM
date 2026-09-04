@@ -9,7 +9,8 @@ use IPC::Cmd qw(can_run);
 my $mma = 0; # 0=instantiate (stand-alone), 1=nrginit (Mathematica)
 my $local = 1; #0=submit a Slurm job, 1=run locally
 
--e "DOS.dat" or die "Tabulated density of states DOS.dat must exist.";
+system("scripts/validate_bare_inputs") == 0
+    or die "Bare-input validation failed: $?";
 
 if (-e "res/READY" || -e "res/READY.complete") {
     system("scripts/dmft_done") == 0

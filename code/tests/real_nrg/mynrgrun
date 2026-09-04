@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+
+: "${DMFT_NRG_CALL_LOG:?DMFT_NRG_CALL_LOG must name an absolute log path}"
+printf '%s\n' "${PWD##*/}" >>"$DMFT_NRG_CALL_LOG"
+
+scratch_root=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
+scratch=$(mktemp -d "$scratch_root/dmft-nrg.XXXXXXXXXX")
+cleanup() {
+  status=$?
+  trap - EXIT
+  rm -rf -- "$scratch"
+  exit "$status"
+}
+trap cleanup EXIT
+
+set -o pipefail
+nrg -w "$scratch" 2>log2 | tee log

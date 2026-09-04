@@ -1,26 +1,34 @@
 #!/usr/bin/env perl
-# Integrate column data by trapezoid rule, with energy kernel (i.e. computes average energy)
-# Rok Zitko, rok.zitko@ijs.si, 2008-2026
+# Print the normalized first moment of the represented Steffen DOS.
 
 use strict;
 use warnings;
+use POSIX qw(isfinite);
 
-my $xprev = 0;
-my $yprev = 0;
-my $sum = 0;
+@ARGV == 1 or die "Usage: $0 DOS.dat\n";
+my $dos = $ARGV[0];
+my $normalization = integrate("--total", $dos);
+my $moment = integrate("--energy-moment", $dos);
+$normalization > 0.0 or die "DOS normalization must be positive.\n";
+abs($normalization - 1.0) <= 1e-8
+    or die "DOS normalization is not one: $normalization\n";
+printf "%.17g\n", $moment / $normalization;
 
-while (<>) {
-  chomp;
-  next if /^#/; # skip comments
-  my ($x,$y,$remainder) = split;
-
-  if ($. != 1) {
-    my $xavg = ($x+$xprev)/2.0;
-    $sum += $xavg * ($x-$xprev) * ($y + $yprev)/2.0;
-  }
-
-  $xprev = $x;
-  $yprev = $y;
+sub integrate {
+    my ($quantity, $file) = @_;
+    open(
+        my $fh,
+        "-|",
+        "integ", "--interpolation", "steffen", $quantity, "--", $file,
+    ) or die "Can't run integ: $!";
+    local $/;
+    my $output = <$fh>;
+    close($fh) or die "integ failed for $file\n";
+    defined($output) or die "integ returned no result for $file\n";
+    $output =~ s/^\s+|\s+$//g;
+    $output =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
+        or die "integ returned an invalid result for $file\n";
+    my $value = 0.0 + $output;
+    isfinite($value) or die "integ returned a non-finite result for $file\n";
+    return $value;
 }
-
-print "$sum\n";

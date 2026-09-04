@@ -80,6 +80,8 @@ subtest "launcher migrates an Im-only legacy result" => sub {
     local $ENV{PATH} = "$dir/bin:$original_path";
     symlink("$scripts/migrate_legacy_res", "scripts/migrate_legacy_res") or die $!;
     symlink("$scripts/causalDelta", "scripts/causalDelta") or die $!;
+    write_file("scripts/validate_bare_inputs", "#!/bin/sh\nexit 0\n");
+    chmod(0755, "scripts/validate_bare_inputs");
     my $negative = "-2 -0.1\n-1 -0.2\n1 -0.2\n2 -0.1\n";
     my $positive = "-2 0\n-1 0.2\n1 0.2\n2 0\n";
     write_file("param.loop", "clipDelta=0.1\n");
