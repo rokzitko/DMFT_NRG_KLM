@@ -449,6 +449,11 @@ cannot drift independently. `param.eps` must contain the first moment of the
 normalized bare `DOS.dat`; it is zero for the checked-in particle-hole
 symmetric Bethe DOS.
 
+If a multi-step Broyden proposal contains a negative interior Gamma value, the
+accelerated proposal is discarded and that cycle uses the ordinary linear step.
+The subsequent strict causal projection still rejects the cycle if this fallback
+is materially negative or has non-negligible endpoint tails.
+
 NRG Ljubljana materializes the selected Steffen interpolant as interval
 polynomials and integrates both transforms analytically. Thus `H_0` and `H_1`
 use exactly the same represented DOS and satisfy their moment identity up to
@@ -510,6 +515,13 @@ key/value record. Convergence requires the consecutive-spectrum criterion,
 `abs(convergence_dx)<=occupancy_mu_tol`. During active Broyden control,
 measure-only mode performs no trial Hilbert transforms and uses the previously
 applied Broyden step for `convergence_dx`.
+
+The spectral criterion uses the largest `DIFFS_C` value in the last
+`convwindow` consecutive iterations. The history must end at the current
+iteration and malformed, non-finite, negative, duplicate, or gapped rows are
+fatal. `miniter` is the first iteration eligible for convergence and `maxiter`
+is the last permitted iteration; both limits are inclusive. A converged result
+at `maxiter` takes precedence over the iteration limit.
 
 Mesh files have two columns for compatibility, but their second column is ignored.
 
@@ -853,7 +865,16 @@ restored in these files.
 - `clipDelta=1e-6` is the minimum interior `Gamma=-Im Delta` used for NRG bath
   input. Projection is applied after initialization, remeshing, or mixing. The
   first and last rows are exact zero support guards, not floor-valued bath
-  points.
+  points. Before projection, `causalDelta` rejects negative values whose
+  magnitude exceeds `max(1e-6*clipDelta, 1e-12*Gamma_max)` and endpoint values
+  whose magnitude exceeds `max(1e-6*clipDelta, 1e-8*Gamma_max)`, where
+  `Gamma_max` is the positive interior peak. Thus only roundoff-scale negative
+  values and negligible finite-support tails are corrected silently. Its log
+  records the raw extrema and the numbers of negative, endpoint, and floored
+  points, together with the trapezoidal L1 weight of all corrections. The
+  narrowly scoped `--allow-floor-endpoints` migration mode additionally accepts
+  endpoint magnitudes no larger than `clipDelta`; restart and legacy ingress use
+  this mode to canonicalize older floor-ended tables before normal processing.
 - Tabulated `hilb` and all `kk` calls use analytic interval-polynomial Cauchy
   transforms. QAG tolerances, workspace sizes, and rules do not apply to these
   paths.

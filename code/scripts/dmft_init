@@ -45,6 +45,11 @@ if (!-s "Delta.next.dat" && -s "ImDelta.next.dat") {
 if (-s "Delta.next.dat") {
     if (!$recovered_resample) {
         system(
+            "$FindBin::Bin/causalDelta", "--allow-floor-endpoints",
+            "Delta.next.dat", "Delta.next.dat",
+            "ReDelta.next.dat", "ImDelta.next.dat",
+        ) == 0 or die "Restart Delta canonicalization failed: $?";
+        system(
             "$FindBin::Bin/resampleDelta", "Delta.next.dat", "mesh.next.dat",
             "ReDelta.next.dat", "ImDelta.next.dat",
         ) == 0 or die "Delta remeshing failed: $?";

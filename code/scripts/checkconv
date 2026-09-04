@@ -1,13 +1,16 @@
 #!/usr/bin/env perl
 # Check for the convergence of the DMFT calculation.
-# Returns 0 if we need to continue, 1 if convergence is achieved.
+# Writes a continue, converged, or stop decision for the current iteration.
 # Rok Zitko, 2008-2026
 
 use strict;
 use warnings;
 use Getopt::Long qw(GetOptions);
+use IPC::Open3 qw(open3);
 use POSIX qw(isfinite);
+use Symbol qw(gensym);
 
+my $number = qr/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
 my ($iter, $fn, $decision_file, $occupancy_metrics);
 $fn = "DIFFS_C";
 GetOptions(
@@ -17,25 +20,36 @@ GetOptions(
     "occupancy-metrics=s" => \$occupancy_metrics,
 ) or die "Invalid arguments.\n";
 
-chomp(my $convergencelimit = `getparam conveps param.loop`);
-chomp(my $convwindow = `getparam convwindow param.loop`);
-chomp(my $miniter = `getparam miniter param.loop`);
-chomp(my $maxiter = `getparam maxiter param.loop`);
-chomp(my $occupancy_limit = `getparam occupancy_solve_tol param.loop 2>/dev/null`);
-chomp(my $mu_limit = `getparam occupancy_mu_tol param.loop 2>/dev/null`);
-$occupancy_limit = 1e-8 if $occupancy_limit eq "";
-$mu_limit = 1e-10 if $mu_limit eq "";
-$occupancy_limit = finite_number($occupancy_limit, "occupancy_solve_tol");
-$mu_limit = finite_number($mu_limit, "occupancy_mu_tol");
-$occupancy_limit > 0.0 or die "occupancy_solve_tol must be positive.\n";
-$mu_limit > 0.0 or die "occupancy_mu_tol must be positive.\n";
+my $convergencelimit = positive_number(
+    parameter("conveps"), "conveps",
+);
+my $convwindow = positive_integer(
+    parameter("convwindow"), "convwindow",
+);
+my $miniter = nonnegative_integer(
+    parameter("miniter"), "miniter",
+);
+my $maxiter = positive_integer(
+    parameter("maxiter"), "maxiter",
+);
+$maxiter >= $miniter
+    or die "maxiter must be greater than or equal to miniter.\n";
 
-die "Invalid convwindow=$convwindow. Stopped" if $convwindow < 1;
+my $occupancy_text = parameter("occupancy_solve_tol", 1);
+my $mu_text = parameter("occupancy_mu_tol", 1);
+my $occupancy_limit = positive_number(
+    defined($occupancy_text) ? $occupancy_text : "1e-8",
+    "occupancy_solve_tol",
+);
+my $mu_limit = positive_number(
+    defined($mu_text) ? $mu_text : "1e-10",
+    "occupancy_mu_tol",
+);
 
 if (!defined $iter) {
-    chomp($iter = `getiter`);
+    $iter = command_output("getiter");
 }
-$iter =~ /\A\d+\z/ && $iter >= 1 or die "Invalid iteration: $iter\n";
+$iter = positive_integer($iter, "iteration");
 print "checkconv, iter=$iter miniter=$miniter maxiter=$maxiter convwindow=$convwindow\n";
 
 my $occupancy_ok = 1;
@@ -43,7 +57,7 @@ if (defined($occupancy_metrics)) {
     my %metrics = read_metrics($occupancy_metrics);
     $metrics{version} eq "1"
         or die "Unsupported occupancy metrics version in $occupancy_metrics.\n";
-    $metrics{iteration} =~ /\A\d+\z/ && $metrics{iteration} == $iter
+    positive_integer($metrics{iteration}, "occupancy metrics iteration") == $iter
         or die "Occupancy metrics iteration does not match iteration $iter.\n";
     my $occupancy_error = abs(finite_number($metrics{error_old}, "error_old"));
     my $step;
@@ -58,37 +72,41 @@ if (defined($occupancy_metrics)) {
 }
 
 my $decision = "continue";
-my $abs;
-if ($iter > 1 && -e $fn) {
-    open(my $fh, "<", $fn) or die "Can't open $fn: $!. Stopped";
-    my @l = <$fh>;
-    close($fh);
+my $maximum_difference;
+if ($iter == 1 && -e $fn) {
+    my @history = read_differences($fn);
+    @history and die "Convergence history is not valid at iteration 1: $fn\n";
+} elsif ($iter > 1) {
+    -e $fn or die "Convergence history not found: $fn\n";
+    my @history = read_differences($fn);
+    @history or die "Convergence history is empty: $fn\n";
+    my $last_iteration = $history[-1][0];
+    $last_iteration == $iter
+        or die "$fn ends at iteration $last_iteration, expected $iter.\n";
 
-    if (@l >= $convwindow) {
-        my $last = $l[-1];
-        chomp($last);
-        my ($iter2, $diff2) = split(' ', $last, 2);
-        warn "Iteration number and $fn do not agree.\n" if $iter != $iter2;
-
-        $abs = 0;
-        foreach my $line (@l[-$convwindow .. -1]) {
-            chomp($line);
-            my ($iter3, $diff3) = split(' ', $line, 2);
-            my $a = abs($diff3);
-            $abs = $a if $a > $abs;
+    if (@history >= $convwindow) {
+        $maximum_difference = 0.0;
+        for my $row (@history[-$convwindow .. -1]) {
+            $maximum_difference = $row->[1]
+                if $row->[1] > $maximum_difference;
         }
-
-        if ($abs < $convergencelimit && $occupancy_ok && $iter > $miniter) {
-            print "Convergence achieved! $abs < $convergencelimit\n";
+        if ($iter <= $maxiter && $maximum_difference < $convergencelimit
+            && $occupancy_ok && $iter >= $miniter) {
+            print "Convergence achieved! $maximum_difference < $convergencelimit\n";
             $decision = "converged";
         } else {
-            print "Not converged yet. spectral=$abs occupancy_ok=$occupancy_ok\n";
-            if ($iter > $maxiter) {
-                print "Iteration limit exceeded, maxiter=$maxiter, stopping here.\n";
-                $decision = "stop";
-            }
+            print "Not converged yet. spectral=$maximum_difference " .
+                "occupancy_ok=$occupancy_ok\n";
         }
+    } else {
+        print "Not converged yet. $fn has " . scalar(@history) .
+            " of $convwindow required rows.\n";
     }
+}
+
+if ($decision eq "continue" && $iter >= $maxiter) {
+    print "Iteration limit reached, maxiter=$maxiter, stopping here.\n";
+    $decision = "stop";
 }
 
 if (defined $decision_file) {
@@ -107,11 +125,13 @@ sub read_metrics {
     my ($file) = @_;
     open(my $fh, "<", $file) or die "Can't open $file: $!\n";
     my %values;
+    my $line_number = 0;
     while (<$fh>) {
+        ++$line_number;
         chomp;
         next if /^\s*$/;
         /\A([A-Za-z][A-Za-z0-9_]*)=(\S+)\z/
-            or die "Malformed occupancy metric in $file at line $.\n";
+            or die "Malformed occupancy metric in $file at line $line_number.\n";
         exists($values{$1}) and die "Duplicate occupancy metric $1 in $file.\n";
         $values{$1} = $2;
     }
@@ -122,12 +142,115 @@ sub read_metrics {
     return %values;
 }
 
+sub read_differences {
+    my ($file) = @_;
+    open(my $fh, "<", $file) or die "Can't open $file: $!\n";
+    my (@rows, $previous_iteration);
+    my $line_number = 0;
+    while (<$fh>) {
+        ++$line_number;
+        next if /^\s*$/;
+        my @fields = split;
+        @fields == 2
+            or die "Malformed convergence row in $file at line $line_number.\n";
+        my $row_iteration = positive_integer(
+            $fields[0], "$file iteration at line $line_number",
+        );
+        $row_iteration >= 2
+            or die "Convergence history cannot start at iteration 1 in $file.\n";
+        my $difference = finite_number(
+            $fields[1], "$file difference at line $line_number",
+        );
+        $difference >= 0.0
+            or die "Negative convergence difference in $file at line $line_number.\n";
+        if (defined($previous_iteration)) {
+            $row_iteration == $previous_iteration + 1
+                or die "Non-consecutive iterations in $file at line $line_number.\n";
+        }
+        push(@rows, [$row_iteration, $difference]);
+        $previous_iteration = $row_iteration;
+    }
+    close($fh) or die "Can't close $file: $!\n";
+    return @rows;
+}
+
+sub parameter {
+    my ($name, $optional) = @_;
+    my ($text, $success);
+    if ($optional) {
+        my $error = gensym;
+        my ($writer, $reader);
+        my $pid = open3(
+            $writer, $reader, $error, "getparam", $name, "param.loop",
+        );
+        close($writer);
+        {
+            local $/;
+            $text = <$reader>;
+            my $ignored_error = <$error>;
+        }
+        close($reader);
+        close($error);
+        waitpid($pid, 0);
+        $success = $? == 0;
+    } else {
+        open(my $fh, "-|", "getparam", $name, "param.loop")
+            or die "Can't run getparam for $name: $!\n";
+        {
+            local $/;
+            $text = <$fh>;
+        }
+        $success = close($fh);
+    }
+    if (!$success || !defined($text) || $text !~ /\S/) {
+        return if $optional;
+        die "Can't read $name from param.loop.\n";
+    }
+    $text =~ s/^\s+|\s+$//g;
+    return $text;
+}
+
+sub command_output {
+    my @command = @_;
+    open(my $fh, "-|", @command) or die "Can't run $command[0]: $!\n";
+    local $/;
+    my $text = <$fh>;
+    close($fh) or die "$command[0] failed: $?\n";
+    defined($text) && $text =~ /\S/
+        or die "$command[0] produced no output.\n";
+    $text =~ s/^\s+|\s+$//g;
+    return $text;
+}
+
 sub finite_number {
     my ($text, $context) = @_;
     defined($text)
-        && $text =~ /\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/
+        && $text =~ /\A$number\z/
         or die "Invalid numeric $context=$text.\n";
     my $value = 0.0 + $text;
     isfinite($value) or die "Non-finite numeric $context=$text.\n";
+    return $value;
+}
+
+sub positive_number {
+    my ($text, $context) = @_;
+    my $value = finite_number($text, $context);
+    $value > 0.0 or die "$context must be positive.\n";
+    return $value;
+}
+
+sub nonnegative_integer {
+    my ($text, $context) = @_;
+    defined($text) && $text =~ /\A\d+\z/
+        or die "Invalid integer $context=$text.\n";
+    my $value = 0.0 + $text;
+    isfinite($value) or die "Non-finite integer $context=$text.\n";
+    return $value;
+}
+
+sub positive_integer {
+    my ($text, $context) = @_;
+    my $value = nonnegative_integer($text, $context);
+    $value >= 1 or die "$context must be at least 1.\n";
     return $value;
 }

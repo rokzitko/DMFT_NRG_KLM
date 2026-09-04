@@ -56,7 +56,7 @@ if (-s "res/Delta.dat") {
     derive_delta("res/ImDelta.dat", $raw_gamma);
 }
 system(
-    $^X, "$FindBin::Bin/causalDelta", $raw_gamma,
+    $^X, "$FindBin::Bin/causalDelta", "--allow-floor-endpoints", $raw_gamma,
     "Delta.used.dat", "ReDelta.used.dat", "ImDelta.used.dat",
 ) == 0 or die "Can't canonicalize legacy hybridization: $?\n";
 unlink($raw_gamma);

@@ -47,7 +47,7 @@ subtest "initialization treats Gamma as authoritative" => sub {
     );
     write_file("param.eps", "0.25\n");
     write_file("param.mu", "0\n");
-    write_file("Delta.dat", "-2 7\n-1 0.2\n1 0.3\n2 8\n");
+    write_file("Delta.dat", "-2 0.1\n-1 0.2\n1 0.3\n2 0.1\n");
     write_file("ReDelta.dat", "-2 9\n-1 9\n1 9\n2 9\n");
     write_file("ImDelta.dat", "-2 -9\n-1 -9\n1 -9\n2 -9\n");
 
@@ -80,8 +80,8 @@ subtest "launcher migrates an Im-only legacy result" => sub {
     local $ENV{PATH} = "$dir/bin:$original_path";
     symlink("$scripts/migrate_legacy_res", "scripts/migrate_legacy_res") or die $!;
     symlink("$scripts/causalDelta", "scripts/causalDelta") or die $!;
-    my $negative = "-2 -0.2\n-1 -0.2\n1 -0.2\n2 -0.2\n";
-    my $positive = "-2 0.2\n-1 0.2\n1 0.2\n2 0.2\n";
+    my $negative = "-2 -0.1\n-1 -0.2\n1 -0.2\n2 -0.1\n";
+    my $positive = "-2 0\n-1 0.2\n1 0.2\n2 0\n";
     write_file("param.loop", "clipDelta=0.1\n");
     write_file("param.eps", "0.25\n");
     write_file("DOS.dat", "placeholder\n");
@@ -156,7 +156,7 @@ subtest "Broyden mixes Gamma with optional mu" => sub {
     chdir($dir) or die $!;
     make_path("dmft", "res", "bin");
     my $mesh = "-2 0\n-1 0.2\n1 0.2\n2 0\n";
-    my $raw = "-2 4\n-1 0.4\n1 0.4\n2 5\n";
+    my $raw = "-2 0\n-1 0.4\n1 0.4\n2 0\n";
     write_file("dmft/1-Delta.dat", $mesh);
     write_file("dmft/1-param.mu", "0\n");
     write_file("dmft/1-mu-occup.dat", "0 0.7\n");
@@ -201,7 +201,38 @@ subtest "Broyden mixes Gamma with optional mu" => sub {
     is($projected[0][1], 0, "projection clears the lower raw endpoint");
     is($projected[-1][1], 0, "projection clears the upper raw endpoint");
     cmp_ok(abs($projected[1][1] - 0.3), "<=", 1e-15,
-           "projection retains the mixed interior Gamma");
+            "projection retains the mixed interior Gamma");
+};
+
+subtest "Broyden falls back when acceleration violates Gamma positivity" => sub {
+    my $dir = tempdir(CLEANUP => 1);
+    chdir($dir) or die $!;
+    make_path("dmft", "res", "bin");
+    write_file("dmft/1-Delta.dat", "-2 0\n-1 0.1\n1 0.1\n2 0\n");
+    write_file("dmft/1-Delta.raw.dat", "-2 0\n-1 0.111\n1 0.111\n2 0\n");
+    write_file("dmft/2-Delta.dat", "-2 0\n-1 0.2\n1 0.2\n2 0\n");
+    write_file("res/Delta.dat.OLD-common", "-2 0\n-1 0.2\n1 0.2\n2 0\n");
+    write_file("res/Delta.dat.NEW-common", "-2 0\n-1 0.22\n1 0.22\n2 0\n");
+    write_file("param.loop", "");
+    write_file(
+        "bin/getparam",
+        "#!/bin/sh\ncase \"\$1\" in\n" .
+        "alpha) printf 0.5;;\n" .
+        "broydenM) printf 50;;\n" .
+        "*) exit 1;;\nesac\n",
+    );
+    chmod(0755, "bin/getparam");
+    local $ENV{PATH} = "$dir/bin:$ENV{PATH}";
+
+    is(system(
+        "python3", "$scripts/broyden.py", "--delta", "--iteration", "2",
+        "--workdir", "res", "--history-dir", "dmft",
+    ), 0, "unstable accelerated proposal falls back successfully");
+    my @mixed = read_table("res/Delta.dat.TEMP");
+    cmp_ok(abs($mixed[1][1] - 0.21), "<=", 2e-15,
+           "fallback uses the current linear Gamma step");
+    cmp_ok(abs($mixed[2][1] - 0.21), "<=", 2e-15,
+           "fallback applies consistently across Gamma components");
 };
 
 subtest "Broyden migrates legacy imaginary history" => sub {
@@ -229,9 +260,12 @@ subtest "Broyden migrates legacy imaginary history" => sub {
         "--workdir", "res", "--history-dir", "dmft",
     ), 0, "Gamma Broyden accepts converted legacy history");
     my @migrated = read_table("dmft/1-Delta.raw.dat");
-    is_deeply([map { $_->[1] } @migrated], [0.1, 0.4, 0.4, 0.1],
-              "legacy raw ImDelta is migrated with the correct sign");
+    is_deeply([map { $_->[1] } @migrated], [0, 0.4, 0.4, 0],
+              "legacy raw ImDelta is migrated with canonical endpoint guards");
     ok(-s "res/Delta.dat.TEMP", "migrated history contributes to a Gamma update");
+    my @mixed = read_table("res/Delta.dat.TEMP");
+    is($mixed[0][1], 0, "Broyden excludes the lower endpoint from its state");
+    is($mixed[-1][1], 0, "Broyden excludes the upper endpoint from its state");
 };
 
 subtest "Broyden preserves compatibility mu symlink" => sub {
@@ -309,7 +343,7 @@ subtest "accurate occupancy is staged before convergence and reuses H0" => sub {
         "open(my \$if, '>', \$imaginary) or die \$!;\n" .
         "if (\$moment == 1) {\n" .
         "  print {\$rf} \"-1 0\\n-0.5 0\\n0.5 0\\n1 0\\n\";\n" .
-        "  print {\$if} \"-1 -1\\n-0.5 -1\\n0.5 -1\\n1 -1\\n\";\n" .
+        "  print {\$if} \"-1 0\\n-0.5 -1\\n0.5 -1\\n1 0\\n\";\n" .
         "} else {\n" .
         "  my \$marker = 0.3 + \$mu;\n" .
         "  print {\$rf} \"-1 1\\n-0.5 1\\n0.5 1\\n1 1\\n\";\n" .

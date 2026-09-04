@@ -269,7 +269,9 @@ def migrate_legacy_delta_history(history_dir, iteration):
             if destination.is_file() or not legacy.is_file():
                 continue
             mesh, imaginary = load_table(legacy)
-            write_table(destination, mesh, -imaginary)
+            gamma = -imaginary
+            gamma[[0, -1]] = 0.0
+            write_table(destination, mesh, gamma)
             migrated.append((legacy, destination))
     for legacy, destination in migrated:
         print(f"Migrated legacy Broyden history {legacy} -> {destination}")
@@ -310,8 +312,8 @@ def build_history(history_dir, indices, mesh, mix_delta, control_mu, goal):
         if mix_delta:
             input_delta = interpolate(input_delta_path(history_dir, iteration), mesh)
             output_delta = interpolate(raw_delta_path(history_dir, iteration), mesh)
-            input_parts.append(input_delta)
-            residual_parts.append(output_delta - input_delta)
+            input_parts.append(input_delta[1:-1])
+            residual_parts.append(output_delta[1:-1] - input_delta[1:-1])
 
         if control_mu:
             input_mu = load_scalar(input_mu_path(history_dir, iteration))
@@ -460,6 +462,7 @@ def main():
             raise BroydenError(f"maxdx must be positive, got {maxdx}")
 
     mesh = None
+    clip_delta = None
     if arguments.delta:
         raw_source = arguments.workdir / "Delta.dat.NEW-common"
         raw_history = raw_delta_path(arguments.history_dir, iteration)
@@ -468,6 +471,13 @@ def main():
         old_mesh, _ = load_table(arguments.workdir / "Delta.dat.OLD-common")
         if not same_mesh(mesh, old_mesh):
             raise BroydenError("Gamma OLD/NEW common meshes do not agree")
+        if len(mesh) < 3:
+            raise BroydenError("Gamma mesh must contain at least one interior point")
+        clip_delta = get_float_parameter(
+            "clipDelta", get_float_parameter("clip", 1e-5)
+        )
+        if clip_delta <= 0.0:
+            raise BroydenError(f"clipDelta must be positive, got {clip_delta}")
         migrate_legacy_delta_history(arguments.history_dir, iteration)
 
     maximum = get_max_history()
@@ -487,7 +497,7 @@ def main():
         goal,
     )
 
-    delta_size = len(mesh) if arguments.delta else 0
+    delta_size = len(mesh) - 2 if arguments.delta else 0
     initial_factors = np.empty(inputs.shape[1])
     if arguments.delta:
         initial_factors[:delta_size] = alpha
@@ -499,12 +509,27 @@ def main():
     )
     if not np.all(np.isfinite(mixed)):
         raise BroydenError("Broyden update produced a non-finite value")
+    if arguments.delta and pair_count > 0:
+        proposal = mixed[:delta_size]
+        peak = max(float(np.max(proposal)), clip_delta)
+        negative_tolerance = max(clip_delta * 1e-6, peak * 1e-12)
+        minimum = float(np.min(proposal))
+        if minimum < -negative_tolerance:
+            print(
+                f"Broyden Gamma proposal has negative interior minimum "
+                f"{minimum:.17g}; using the linear step"
+            )
+            mixed = inputs[-1] + initial_factors * residuals[-1]
+            if not np.all(np.isfinite(mixed)):
+                raise BroydenError("Linear fallback produced a non-finite value")
 
     if arguments.delta:
+        gamma = np.zeros(len(mesh))
+        gamma[1:-1] = mixed[:delta_size]
         write_table(
             arguments.workdir / "Delta.dat.TEMP",
             mesh,
-            mixed[:delta_size],
+            gamma,
         )
 
     if arguments.mu:

@@ -53,7 +53,9 @@ broydenM=50
 conveps=1e-8
 # Number of consecutive iterations required for convergence
 convwindow=1
+# Earliest iteration allowed to converge (inclusive)
 miniter=10
+# Last iteration allowed; a nonconverged run stops here (inclusive)
 maxiter=100
 
 # Mesh optimization parameters

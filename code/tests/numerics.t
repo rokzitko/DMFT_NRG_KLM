@@ -142,7 +142,7 @@ subtest "causal Delta is projected and reconstructed from Gamma" => sub {
     write_file("param.eps", "0.25\n");
     write_file(
         "Gamma.raw.dat",
-        "-2 9\n-1 0.05\n-0.5 0.2\n0.5 -3\n1 0.4\n2 8\n",
+        "-2 1e-9\n-1 0.05\n-0.5 0.2\n0.5 -5e-8\n1 0.4\n2 2e-9\n",
     );
 
     is(system($^X, "$scripts/causalDelta", "Gamma.raw.dat", "Delta.dat",
@@ -152,7 +152,7 @@ subtest "causal Delta is projected and reconstructed from Gamma" => sub {
     my @imaginary = read_table("ImDelta.dat");
     my @real = read_table("ReDelta.dat");
     is_deeply([map { $_->[1] } @gamma], [0, 0.1, 0.2, 0.1, 0.4, 0],
-              "only interior Gamma values are floored");
+              "only tolerance-bounded Gamma values are projected");
     for my $index (0 .. $#gamma) {
         is($imaginary[$index][0], $gamma[$index][0],
            "imaginary mesh agrees at row " . ($index + 1));
