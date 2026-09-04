@@ -11,11 +11,9 @@ use POSIX qw(isfinite);
 
 my $parameter_file = "param.loop";
 my $eps_file = "param.eps";
-my $allow_floor_endpoints = 0;
 GetOptions(
     "parameter-file=s" => \$parameter_file,
     "eps-file=s" => \$eps_file,
-    "allow-floor-endpoints" => \$allow_floor_endpoints,
 ) or die usage();
 
 my $gamma_input = @ARGV ? shift @ARGV : "Delta.dat";
@@ -46,20 +44,10 @@ for my $index (1 .. $#$raw_gamma - 1) {
 }
 $peak > 0.0 or die "$gamma_input has no positive interior Gamma\n";
 my $negative_tolerance = max($clip * 1e-6, $peak * 1e-12);
-my $endpoint_tolerance = max($clip * 1e-6, $peak * 1e-8);
-$endpoint_tolerance = max($endpoint_tolerance, $clip * (1.0 + 1e-12))
-    if $allow_floor_endpoints;
 for my $index (1 .. $#$raw_gamma - 1) {
     $raw_gamma->[$index] >= -$negative_tolerance or die sprintf(
         "%s Gamma %.17g is below the allowed negative tolerance %.17g at row %d\n",
         $gamma_input, $raw_gamma->[$index], $negative_tolerance, $index + 1,
-    );
-}
-for my $index (0, $#$raw_gamma) {
-    abs($raw_gamma->[$index]) <= $endpoint_tolerance or die sprintf(
-        "%s endpoint Gamma %.17g exceeds tolerance %.17g at row %d; " .
-        "increase the frequency support\n",
-        $gamma_input, $raw_gamma->[$index], $endpoint_tolerance, $index + 1,
     );
 }
 
@@ -133,16 +121,14 @@ rename($gamma_temporary, $gamma_target) or die "Can't replace $gamma_target: $!\
 unlink($re_kk_temporary);
 
 print "causalDelta: clipDelta=$clip param.eps=$eps rows=" . scalar(@gamma) .
-    " endpoint_policy=" . ($allow_floor_endpoints ? "floor" : "strict") .
     " raw_min=$raw_minimum raw_max=$raw_maximum peak=$peak" .
     " negative_tolerance=$negative_tolerance negative_points=$negative_points" .
-    " endpoint_tolerance=$endpoint_tolerance endpoint_max=$endpoint_maximum" .
+    " endpoint_max=$endpoint_maximum" .
     " endpoint_points=$endpoint_points floored_points=$floored_points" .
     " correction_l1=$correction_l1\n";
 
 sub usage {
     return "Usage: $0 [--parameter-file FILE] [--eps-file FILE] " .
-        "[--allow-floor-endpoints] " .
         "[GammaInput [GammaOutput [ReDeltaOutput [ImDeltaOutput]]]]\n";
 }
 

@@ -25,8 +25,6 @@ subtest "bounded numerical corrections produce a causal triplet" => sub {
     my $result = run_causal_delta();
     is($result->{status}, 0, "bounded projection succeeds");
     like($result->{stdout}, qr/raw_min=-5e-08\b/, "raw minimum is reported");
-    like($result->{stdout}, qr/endpoint_policy=strict\b/,
-         "strict endpoint policy is reported");
     like($result->{stdout}, qr/negative_points=2\b/,
          "negative correction count is reported");
     like($result->{stdout}, qr/endpoint_points=2\b/,
@@ -70,68 +68,24 @@ subtest "materially negative Gamma is rejected without publication" => sub {
     assert_outputs_unchanged(\%published, "negative-value failure");
 };
 
-subtest "material endpoint tails are rejected without publication" => sub {
+subtest "endpoint values are unconditionally projected to zero" => sub {
     my $dir = causality_fixture();
     chdir($dir) or die $!;
     local $ENV{PATH} = "$dir/bin:$original_path";
-    publish_safe_triplet();
-    my %published = published_outputs();
     write_file(
         "Gamma.raw.dat",
-        "-2 1e-4\n-1 0.05\n-0.5 0.2\n0.5 0.2\n1 0.4\n2 0\n",
+        "-2 0.3\n-1 0.2\n-0.5 0.2\n0.5 0.2\n1 0.2\n2 -0.4\n",
     );
 
     my $result = run_causal_delta();
-    isnt($result->{status}, 0, "material endpoint is rejected");
-    like($result->{stderr}, qr/endpoint Gamma .* exceeds tolerance/,
-         "endpoint failure is descriptive");
-    assert_outputs_unchanged(\%published, "endpoint failure");
-};
-
-subtest "legacy mode accepts only floor-sized endpoint guards" => sub {
-    my $dir = causality_fixture();
-    chdir($dir) or die $!;
-    local $ENV{PATH} = "$dir/bin:$original_path";
-    write_file(
-        "Gamma.raw.dat",
-        "-2 0.1\n-1 0.2\n-0.5 0.2\n0.5 0.2\n1 0.2\n2 -0.1\n",
-    );
-
-    my $strict = run_causal_delta();
-    isnt($strict->{status}, 0, "strict mode rejects floor-sized endpoints");
-    my $legacy = run_causal_delta(allow_floor_endpoints => 1);
-    is($legacy->{status}, 0, "legacy mode accepts floor-sized endpoints");
-    like($legacy->{stdout}, qr/endpoint_policy=floor\b/,
-         "legacy endpoint policy is reported");
+    is($result->{status}, 0, "nonzero endpoints are accepted");
+    like($result->{stdout}, qr/endpoint_max=0\.4\b/,
+         "discarded endpoint magnitude is reported");
+    like($result->{stdout}, qr/endpoint_points=2\b/,
+         "endpoint correction count is reported");
     my @gamma = read_table("Delta.dat");
-    is($gamma[0][1], 0, "legacy lower endpoint is canonicalized");
-    is($gamma[-1][1], 0, "legacy upper endpoint is canonicalized");
-
-    write_file(
-        "Gamma.raw.dat",
-        "-2 0.1001\n-1 0.2\n-0.5 0.2\n0.5 0.2\n1 0.2\n2 0\n",
-    );
-    my $oversized = run_causal_delta(allow_floor_endpoints => 1);
-    isnt($oversized->{status}, 0, "legacy mode rejects endpoints above the floor");
-};
-
-subtest "peak-relative endpoint tolerance is enforced at production scale" => sub {
-    my $dir = causality_fixture(clip => 1e-6);
-    chdir($dir) or die $!;
-    local $ENV{PATH} = "$dir/bin:$original_path";
-    write_file(
-        "Gamma.raw.dat",
-        "-2 -3e-9\n-1 0.1\n-0.5 0.2\n0.5 0.2\n1 0.4\n2 3e-9\n",
-    );
-    is(run_causal_delta()->{status}, 0,
-       "endpoint below peak-relative tolerance is accepted for either sign");
-
-    write_file(
-        "Gamma.raw.dat",
-        "-2 5e-9\n-1 0.1\n-0.5 0.2\n0.5 0.2\n1 0.4\n2 0\n",
-    );
-    isnt(run_causal_delta()->{status}, 0,
-         "endpoint above peak-relative tolerance is rejected");
+    is_deeply([map { $_->[1] } @gamma], [0, 0.2, 0.2, 0.2, 0.2, 0],
+              "both endpoint values are replaced by support guards");
 };
 
 subtest "peak-relative negative tolerance is enforced" => sub {
@@ -218,15 +172,10 @@ sub publish_safe_triplet {
 }
 
 sub run_causal_delta {
-    my %options = @_;
     my $error = gensym;
     my ($writer, $reader);
-    my @arguments;
-    push(@arguments, "--allow-floor-endpoints")
-        if $options{allow_floor_endpoints};
     my $pid = open3(
         $writer, $reader, $error, $^X, $causal_delta,
-        @arguments,
         "Gamma.raw.dat", "Delta.dat", "ReDelta.dat", "ImDelta.dat",
     );
     close($writer);

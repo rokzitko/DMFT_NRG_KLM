@@ -458,8 +458,9 @@ symmetric Bethe DOS.
 
 If a multi-step Broyden proposal contains a negative interior Gamma value, the
 accelerated proposal is discarded and that cycle uses the ordinary linear step.
-The subsequent strict causal projection still rejects the cycle if this fallback
-is materially negative or has non-negligible endpoint tails.
+The subsequent causal projection still rejects the cycle if this fallback is
+materially negative in the interior; outer endpoint values are projected to
+exact-zero support guards.
 
 NRG Ljubljana materializes the selected Steffen interpolant as interval
 polynomials and integrates both transforms analytically. Thus `H_0` and `H_1`
@@ -887,15 +888,11 @@ restored in these files.
   input. Projection is applied after initialization, remeshing, or mixing. The
   first and last rows are exact zero support guards, not floor-valued bath
   points. Before projection, `causalDelta` rejects negative values whose
-  magnitude exceeds `max(1e-6*clipDelta, 1e-12*Gamma_max)` and endpoint values
-  whose magnitude exceeds `max(1e-6*clipDelta, 1e-8*Gamma_max)`, where
-  `Gamma_max` is the positive interior peak. Thus only roundoff-scale negative
-  values and negligible finite-support tails are corrected silently. Its log
-  records the raw extrema and the numbers of negative, endpoint, and floored
-  points, together with the trapezoidal L1 weight of all corrections. The
-  narrowly scoped `--allow-floor-endpoints` migration mode additionally accepts
-  endpoint magnitudes no larger than `clipDelta`; restart and legacy ingress use
-  this mode to canonicalize older floor-ended tables before normal processing.
+  magnitude exceeds `max(1e-6*clipDelta, 1e-12*Gamma_max)`, where `Gamma_max`
+  is the positive interior peak. Endpoint values are always replaced by exact
+  zero guards. The log records the raw extrema, endpoint maximum, and numbers of
+  negative, endpoint, and floored points, together with the trapezoidal L1
+  weight of all corrections.
 - Tabulated `hilb` and all `kk` calls use analytic interval-polynomial Cauchy
   transforms. QAG tolerances, workspace sizes, and rules do not apply to these
   paths.
@@ -916,7 +913,8 @@ restored in these files.
   frequency to `30T`.
 - `kk` treats its input as having finite support. Causal Delta reconstruction
   forces its two outer support guards to zero before the endpoint-subtracted
-  transform; choose a wide enough mesh that this truncation is negligible.
+  transform without rejecting their raw magnitude; choose a wide enough mesh
+  when endpoint truncation must be negligible.
 
 The convergence norm resamples both spectra with Steffen and uses
 `integ -i steffen -a` with GK61, `epsabs=1e-10`, `epsrel=1e-9`, and

@@ -179,7 +179,7 @@ subtest "causal Delta is projected and reconstructed from Gamma" => sub {
     my @imaginary = read_table("ImDelta.dat");
     my @real = read_table("ReDelta.dat");
     is_deeply([map { $_->[1] } @gamma], [0, 0.1, 0.2, 0.1, 0.4, 0],
-              "only tolerance-bounded Gamma values are projected");
+              "interior Gamma is floored and endpoints are cleared");
     for my $index (0 .. $#gamma) {
         is($imaginary[$index][0], $gamma[$index][0],
            "imaginary mesh agrees at row " . ($index + 1));
