@@ -570,6 +570,18 @@ subtest "warning-mode convergence estimates continue" => sub {
     write_file("local.dat", "-1 0.1\n0 0.2\n1 0.1\n");
     write_file("mesh.dat", "-1 0\n0 0\n1 0\n");
     write_file(
+        "bin/resample",
+        "#!/usr/bin/env perl\n" .
+        "use strict; use warnings; use File::Copy qw(copy);\n" .
+        "copy(\$ARGV[-3], \$ARGV[-1]) or die \$!;\n",
+    );
+    write_file(
+        "bin/subtracty",
+        "#!/bin/sh\n" .
+        "test \"\$#\" -eq 2 && test -s \"\$1\" && test -s \"\$2\" || exit 92\n" .
+        "printf '%s\\n' '-1 0' '0 0' '1 0'\n",
+    );
+    write_file(
         "bin/integ",
         "#!/bin/sh\n" .
         "case \" \$* \" in\n" .
@@ -579,7 +591,14 @@ subtest "warning-mode convergence estimates continue" => sub {
         "printf '%s\\n' 'WARNING - qag error: 18 -- roundoff error' >&2\n" .
         "printf '%s\\n' \"\${INTEG_OUTPUT:-0}\"\n",
     );
-    chmod(0755, "bin/integ");
+    write_file(
+        "bin/integratenegabs",
+        "#!/bin/sh\n" .
+        "test \"\$#\" -eq 1 && test -s \"\$1\" || exit 93\n" .
+        "printf '%s\\n' '0'\n",
+    );
+    chmod(0755, "bin/resample", "bin/subtracty", "bin/integ",
+          "bin/integratenegabs");
     local $ENV{PATH} = "$dir/bin:$original_path";
 
     is(system($^X, "$scripts/diffs", "--iteration", "2",
