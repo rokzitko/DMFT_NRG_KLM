@@ -15,8 +15,6 @@ concurrency:
 env:
   NRG_SHA: 4940daa32017ad4a315c42ff222e3c55b55c8214
   NRG_PREFIX: ${{ github.workspace }}/.nrg-install
-  NRG_SOURCE: ${{ runner.temp }}/nrgljubljana-source
-  NRG_BUILD: ${{ runner.temp }}/nrgljubljana-build
 
 jobs:
   real-nrg:
@@ -30,6 +28,12 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      - name: Set runner-local NRG paths
+        run: |
+          printf 'NRG_SOURCE=%s\nNRG_BUILD=%s\n' \
+            "$RUNNER_TEMP/nrgljubljana-source" \
+            "$RUNNER_TEMP/nrgljubljana-build" >>"$GITHUB_ENV"
 
       - name: Install build and runtime dependencies
         run: |
