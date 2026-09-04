@@ -52,7 +52,7 @@ close($mu_fh);
 chomp(my $shift = `cat param.eps`);
 
 my $epsimp = $shift-$mu; # impurity level for NRG calculation
-print "mu=$mu shift=$shift $epsimp=$epsimp\n";
+print "mu=$mu shift=$shift epsimp=$epsimp\n";
 
 # Perform the discretization
 system("m4 -DEPS=$epsimp -DZZZ=1 param.loop >param") == 0 or die "m4 failed: $?";
