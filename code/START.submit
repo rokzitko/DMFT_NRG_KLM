@@ -9,4 +9,5 @@
 #SBATCH --mail-type=END,FAIL,TIME_LIMIT
 #SBATCH --job-name="DMFT"
 
+export OMP_NUM_THREADS=8
 ./START
