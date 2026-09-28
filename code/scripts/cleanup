@@ -38,3 +38,6 @@ rm -f ldos.dat
 # Flag files, loop control
 rm -f CONVERGED STOP ITER DIFFS_C DIFFS_LatLoc ERROR
 rm -f POSTPROCESSING_FAILED NEXT_PREPARATION_FAILED
+rm -f param.loop.lock
+# Plots
+rm -rf plots/
