@@ -1,12 +1,16 @@
 #!/usr/bin/env perl
+# V2 - RUNNING
 
 use strict;
 use warnings;
+use Time::HiRes qw(sleep);
 
-my $Tinit = "1e-2"; # as string
+sleep(0.5 + rand(3));
+
+my $Tinit = "1"; # as string
 
 my $Tend = 10.0;
-my $ratio = 1.5;
+my $ratio = 1.1;
 
 open(L, ">log") or die;
 
@@ -20,6 +24,14 @@ for (my $T = $Tinit; $T <= $Tend; $T *= $ratio) {
         # Already computed
         if (-e "$dir/CONVERGED") {
             $last_converged = $dir;
+        } else { # Continue
+            if (!-e "$dir/RUNNING") {
+                chdir "$dir";
+                system "touch RUNNING";
+                system "./START";
+                system "rm RUNNING";
+                chdir "..";
+            }
         }
     } else {
         # New instance
@@ -29,9 +41,11 @@ for (my $T = $Tinit; $T <= $Tend; $T *= $ratio) {
             system("cp -r $last_converged $dir") == 0 or die;
             -d $dir or die;
             chdir($dir);
+            system("touch RUNNING");
             system("scripts/cleanup keep") == 0 or die;
             system("setparam T $T param.loop") == 0 or die;
             system("./START");
+            system("rm RUNNING");
             if (-e "CONVERGED") {
               $last_converged = $dir;
             }
