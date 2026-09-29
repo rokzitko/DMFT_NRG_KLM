@@ -8,7 +8,8 @@ use strict;
 use warnings;
 use File::Basename qw(dirname);
 use File::Spec;
-use List::Util qw(max);
+use File::Temp qw(tempfile);
+use List::Util qw(min max);
 use Math::Complex;
 use POSIX qw(isfinite);
 
@@ -23,29 +24,48 @@ my @output_temporaries;
 END { unlink(grep { defined($_) && (-e $_ || -l $_) } @output_temporaries); }
 
 # $imclip is the "infinitesimal" clipping value for Im(Sigma), to prevent causality violations
-my $imclip = parameter("clipSigma", "clip");
+my $imclip = parse_number(parameter("clipSigma", "clip"), "clipSigma (or clip) in param.loop");
 $imclip > 0.0 or die "clipSigma must be positive\n";
 
-print "sigmatrick - imclip=$imclip\n";
+my $mode = lc(parameter("sigmatrick") // "new");
+$mode =~ /\A(?:new|new-im|old|new-crossover)\z/
+    or die "Invalid sigmatrick=$mode; expected new, new-im, old, or new-crossover\n";
+my $reconstruct = $mode eq "new-im" || $mode eq "new-crossover";
+my ($w_crossover, $w_width);
+if ($mode eq "new-crossover") {
+    $w_crossover = parse_number(parameter("w_crossover"), "w_crossover in param.loop");
+    $w_width = parse_number(parameter("w_width"), "w_width in param.loop");
+    $w_crossover > 0.0 or die "w_crossover must be positive\n";
+    $w_width > 1.0 or die "w_width must be greater than one\n";
+    print "w_crossover=$w_crossover w_width=$w_width\n";
+}
+print "sigmatrick - mode=$mode imclip=$imclip\n";
 
 my ($omega, $omega_text) = read_mesh($mesh_file);
+if ($reconstruct) {
+    @$omega >= 4 or die "$mesh_file must contain at least four rows for Steffen KK\n";
+    @$omega % 2 == 0 or die "$mesh_file must contain an even number of rows for KK\n";
+    for my $index (0 .. $#$omega) {
+        my $opposite = $#$omega - $index;
+        my $scale = max(abs($omega->[$index]), abs($omega->[$opposite]), 1.0);
+        abs($omega->[$index] + $omega->[$opposite]) <= 1e-10 * $scale
+            or die "$mesh_file frequency mesh is not symmetric around zero\n";
+    }
+}
 my %spectra;
-for my $source (
-    [imG => "$result_dir/c-imG.dat"],
-    [reG => "$result_dir/c-reG.dat"],
-    [imF => "$result_dir/c-imF.dat"],
-    [reF => "$result_dir/c-reF.dat"],
-    [imI => "$result_dir/c-imI.dat"],
-    [reI => "$result_dir/c-reI.dat"],
-) {
-    my ($name, $file) = @$source;
+my @components = qw(imG imF);
+push(@components, qw(reG reF)) if $mode ne "new-im";
+push(@components, "imI") if $mode ne "old";
+push(@components, "reI") if $mode eq "new";
+for my $name (@components) {
+    my $file = "$result_dir/c-$name.dat";
     my ($source_mesh, $values) = read_table($file);
     require_same_mesh($omega, $source_mesh, $file);
     $spectra{$name} = $values;
 }
 
-# Hartree shift
-my $SigmaH = command_number(
+# Eq. (11) already contains the Hartree term through F/G.
+my $SigmaH = $mode eq "old" ? 0.0 : command_number(
     "SigmaHd in $customfdm_file", "extractcolumn", $customfdm_file, "SigmaHd",
 );
 
@@ -74,28 +94,86 @@ my $pi = pi;
 # Finish validation and calculation before replacing any published output.
 my (@resigma, @imsigma, @self);
 for my $index (0 .. $#$omega) {
-    my $G = -$pi * (
-        $spectra{reG}->[$index] + i * $spectra{imG}->[$index]
-    );
-    my $g_magnitude = abs($G);
-    isfinite($g_magnitude) && $g_magnitude > 0.0
-        or die "G is zero or non-finite at row " . ($index + 1) . "\n";
-    my $F = -$pi * (
-        $spectra{reF}->[$index] + i * $spectra{imF}->[$index]
-    );
-    my $I = -$pi * (
-        $spectra{reI}->[$index] + i * $spectra{imI}->[$index]
-    );
+    my $weight = $mode eq "new-im" ? 0.0 : 1.0;
+    if ($mode eq "new-crossover") {
+        my $r = abs($omega->[$index]);
+        if ($r <= $w_crossover / $w_width) {
+            $weight = 0.0;
+        } elsif ($r >= $w_crossover * $w_width) {
+            $weight = 1.0;
+        } else {
+            # Quintic smoothstep in log frequency: C2 joins and 50:50 at w_crossover.
+            my $t = 0.5 * (1.0 + (log($r) - log($w_crossover)) / log($w_width));
+            $t = min(1.0, max(0.0, $t));
+            $weight = min(1.0, max(0.0, $t**3 * (10.0 + $t * (-15.0 + 6.0 * $t))));
+        }
+    }
 
-    my $sigma = $SigmaH + $I - $F / $G * $F;
-    my $re = Re($sigma);
-    my $im = Im($sigma);
+    my ($re, $im) = (0.0, 0.0);
+    if ($weight > 0.0) {
+        my $G = -$pi * (
+            $spectra{reG}->[$index] + i * $spectra{imG}->[$index]
+        );
+        my $g_magnitude = abs($G);
+        isfinite($g_magnitude) && $g_magnitude > 0.0
+            or die "G is zero or non-finite at row " . ($index + 1) . "\n";
+        my $F = -$pi * (
+            $spectra{reF}->[$index] + i * $spectra{imF}->[$index]
+        );
+        my $sigma;
+        if ($mode eq "old") {
+            $sigma = $F / $G; # Kugler Eq. (11).
+        } else {
+            # Only Im I is needed when Re Sigma will be reconstructed by KK.
+            my $I = -$pi * (
+                ($mode eq "new" ? $spectra{reI}->[$index] : 0.0)
+                + i * $spectra{imI}->[$index]
+            );
+            $sigma = $SigmaH + $I - $F / $G * $F; # Eq. (12).
+        }
+        $re = Re($sigma);
+        $im = $weight * Im($sigma);
+    }
+    if ($weight < 1.0) {
+        my $imG = -$pi * $spectra{imG}->[$index];
+        my $imF = -$pi * $spectra{imF}->[$index];
+        my $imI = -$pi * $spectra{imI}->[$index];
+        isfinite($imG) && $imG != 0.0
+            or die "Im G is zero or non-finite at row " . ($index + 1) . "\n";
+        # Eq. (15), omitting the correction in Eq. (30). Divide before squaring.
+        $im += (1.0 - $weight) * ($imI - $imF / $imG * $imF);
+    }
     isfinite($re) && isfinite($im)
         or die "Self-energy is non-finite at row " . ($index + 1) . "\n";
     $im = -$imclip if $im > -$imclip;
     $im < 0.0 or die "Self-energy is not causal at row " . ($index + 1) . "\n";
+    push(@resigma, $re);
+    push(@imsigma, $im);
+}
 
-    my $sigma_clipped = $re + i * $im;
+if ($reconstruct) {
+    my @kk_files;
+    for my $part (qw(im re)) {
+        my ($fh, $file) = tempfile(".sigmatrick-$part.tmp.XXXXXX", DIR => $result_dir);
+        push(@output_temporaries, $file);
+        close($fh) or die "Can't close $file: $!\n";
+        push(@kk_files, $file);
+    }
+    # KK transforms the same clipped, actual Im Sigma that will be published.
+    write_table($kk_files[0], $omega_text, \@imsigma);
+    system("kk", "-v", "--interpolation", "steffen", "--algorithm", "analytic", @kk_files) == 0
+        or die "Self-energy Steffen KK reconstruction failed: $?\n";
+    my ($re_mesh, $dynamic_real) = read_table($kk_files[1]);
+    require_same_mesh($omega, $re_mesh, "Self-energy KK output");
+    @resigma = map {
+        my $value = $_ + $SigmaH;
+        isfinite($value) or die "Self-energy overflow after adding SigmaHd\n";
+        $value;
+    } @$dynamic_real;
+}
+
+for my $index (0 .. $#$omega) {
+    my $sigma_clipped = $resigma[$index] + i * $imsigma[$index];
     my $delta = $redelta->[$index] + i * $imdelta[$index];
     my $denominator = $omega->[$index] + $mu - $delta - $sigma_clipped;
     my $denominator_magnitude = abs($denominator);
@@ -106,8 +184,6 @@ for my $index (0 .. $#$omega) {
     isfinite($aw) && $aw > 0.0
         or die "Reconstructed spectral function is invalid at row " . ($index + 1) . "\n";
 
-    push(@resigma, $re);
-    push(@imsigma, $im);
     push(@self, $aw);
 }
 
@@ -120,16 +196,20 @@ publish_tables(
 
 sub parameter {
     my @names = @_;
-    for my $name (@names) {
-        open(my $fh, "-|", "getparam", $name, "param.loop")
-            or die "Can't run getparam for $name: $!\n";
-        local $/;
-        my $text = <$fh>;
-        my $success = close($fh);
-        next if !$success || !defined($text) || $text !~ /\S/;
-        return parse_number($text, "$name in param.loop");
+    open(my $fh, "<", "param.loop") or die "Can't read param.loop: $!\n";
+    my %values;
+    while (<$fh>) {
+        for my $name (@names) {
+            push(@{$values{$name}}, $1) if /^\s*\Q$name\E\s*=\s*(.*?)\s*$/;
+        }
     }
-    die "None of the parameters were found: " . join(", ", @names) . "\n";
+    close($fh) or die "Can't close param.loop: $!\n";
+    for my $name (@names) {
+        next unless exists($values{$name});
+        @{$values{$name}} == 1 or die "Duplicate $name in param.loop\n";
+        return $values{$name}[0];
+    }
+    return undef;
 }
 
 sub command_number {

@@ -19,6 +19,12 @@ clip=1e-5
 clipDelta=1e-6
 clipSigma=1e-12
 
+# Self-energy estimator: new, new-im, old, or new-crossover (see README).
+sigmatrick=new
+# Required only for new-crossover; example interval in |omega|: [0.01/3, 0.01*3].
+#w_crossover=0.01
+#w_width=3
+
 # Conduction band occupancy
 goal=0.8
 # frozen-Sigma lattice recomputation (accurate) or rigid spectrum shift (fast)

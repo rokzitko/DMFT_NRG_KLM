@@ -374,8 +374,14 @@ G^R_{\mathrm{imp}}(\omega)=
 }.
 ```
 
-The improved self-energy estimator uses the auxiliary retarded correlators
-`F` and `I`:
+### Self-energy estimators
+
+`scripts/sigmatrick` reads `sigmatrick=mode` from the working directory's
+`param.loop` (`[dmft]`). The default, including when the parameter is absent,
+is `new`. The estimators use the auxiliary retarded correlators `F` and `I`
+defined in [Kugler, arXiv:2202.04063](https://arxiv.org/abs/2202.04063).
+
+`sigmatrick=new` preserves the improved estimator, Eq. (12):
 
 ```math
 \Sigma^R(\omega)=\Sigma_H+I^R(\omega)
@@ -384,6 +390,81 @@ The improved self-energy estimator uses the auxiliary retarded correlators
 
 `Sigma_H` and the self-energy are averaged over up and down spins before they
 enter the scalar DMFT loop.
+
+`sigmatrick=old` uses Eq. (11), with no separate Hartree addition:
+
+```math
+\Sigma_{\mathrm{old}}=F/G.
+```
+
+`sigmatrick=new-im` retains only the two displayed terms of Eq. (15):
+
+```math
+S_{\mathrm{im}}(\omega)=\operatorname{Im}I(\omega)
+-\frac{[\operatorname{Im}F(\omega)]^2}{\operatorname{Im}G(\omega)}.
+```
+
+It applies the `clipSigma` floor to this imaginary part, then obtains
+`Re Sigma = Sigma_H + KK[Im Sigma]`. This mode does not read the real parts of
+the correlators. Eq. (15) is a low-energy Fermi-liquid approximation; applying
+these two terms over the whole mesh does not retain the full estimator's
+guaranteed self-energy moment.
+
+`sigmatrick=new-crossover` blends the imaginary parts of `new-im` at low
+`|omega|` and `new` at high `|omega|`, then performs the same KK reconstruction.
+For example:
+
+```ini
+sigmatrick=new-crossover
+w_crossover=0.01
+w_width=3
+```
+
+Both crossover parameters are required for this mode and ignored otherwise.
+`w_crossover` must be finite and positive, in the same units as the frequency;
+`w_width` must be finite and greater than one and is a dimensionless factor.
+Writing `r=|omega|`, `c=w_crossover`, and `b=w_width`, the weight of `new` is
+
+```math
+a(r)=\begin{cases}
+0, & r\le c/b,\\
+6t^5-15t^4+10t^3, & c/b<r<cb,\\
+1, & r\ge cb,
+\end{cases}
+\qquad t=\frac12\left[1+\frac{\ln(r/c)}{\ln b}\right].
+```
+
+This quintic weight is 50:50 at `|omega|=w_crossover` and joins the pure-mode
+regions with continuous first and second derivatives. The resulting
+imaginary part is
+
+```math
+\operatorname{Im}\Sigma(\omega)=\min\!\left(
+  (1-a)S_{\mathrm{im}}(\omega)+a\operatorname{Im}\Sigma_{\mathrm{new}}(\omega),
+  -\mathtt{clipSigma}\right).
+```
+
+Clipping is applied **after** blending. The real part is reconstructed from
+this final imaginary part over the entire mesh, not blended between modes.
+Since KK couples all frequencies, `Re Sigma` need not match the individual
+modes outside the crossover interval. The crossover is a numerical
+interpolation, not an additional identity from the paper, and likewise does
+not guarantee the full estimator's self-energy moment.
+
+Both KK modes use `kk --interpolation steffen --algorithm analytic`, adding
+`Sigma_H` after the transform. They require an even, zero-symmetric frequency
+mesh with at least four rows. The transform uses the tabulated finite support
+and the tool's endpoint-subtracted convention; self-energy endpoints retain
+the `clipSigma` floor and are not forced to zero. Choose a sufficiently wide
+mesh to limit truncation effects. Zero `Im G` is rejected wherever the
+imaginary-only expression is active, including `0/0`; the pure high-frequency
+region of `new-crossover` only requires nonzero complex `G`.
+
+All modes retain the existing `imsigma.dat`, `resigma.dat`, and `c-self.dat`
+outputs and Dyson reconstruction. Input or KK failures are fatal and do not
+replace those outputs. The DMFT pipeline still generates all correlator
+components for diagnostics, even when the selected estimator does not use
+them.
 
 ## Bethe density of states
 
